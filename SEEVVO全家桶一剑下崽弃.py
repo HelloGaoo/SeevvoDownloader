@@ -32,7 +32,7 @@ import py7zr
 import requests
 import urllib3
 from plyer import notification
-
+from version import __version__
 # 配置常量
 # 目录配置（基于脚本所在目录或可执行文件所在目录，避免因工作目录变化导致路径不一致）
 if getattr(sys, 'frozen', False):
