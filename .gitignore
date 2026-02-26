@@ -1,0 +1,29 @@
+# Python编译文件
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虚拟环境
+venv/
+env/
+.venv/
+.env
+
+# 打包/安装文件
+dist/
+build/
+*.egg-info/
+requirements.txt.bak
+
+# IDE配置
+.idea/
+.vscode/
+*.swp
+
+# 日志和缓存
+*.log
+.cache/
+
+# 系统文件
+Thumbs.db
