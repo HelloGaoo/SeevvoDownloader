@@ -1,16 +1,16 @@
 # SeevvoDownloader
-# Copyright (C) [2026] [HelloGaoo]
+# Copyright (C) [2026] [HelloGaoo,WHYOS]
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import ctypes
@@ -41,6 +41,9 @@ import requests
 import urllib3
 from plyer import notification
 from version import __version__
+
+# 版本号定义
+VERSION = f"v{__version__}"
 # 配置常量
 if getattr(sys, 'frozen', False):
     # exe时
@@ -575,13 +578,13 @@ class DisclaimerWindow:
         
         # 插入协议内容
         disclaimer_content = """免责声明及法律参考：
-更新日期：2026/2/22
-生效日期：2026/2/22
+更新日期：2026/2/27
+生效日期：2026/2/27
 
 重要提示：
 本程序部分工具中的"白板去除横幅"已设置为不可选择状态，用户无法通过本程序直接获取该工具。
 
-使用目的：本程序及其子目录下的所有资源仅供学习和研究使用。其旨在为学术和研究人员提供参考和资料，任何其他目的均不适用。
+使用目的：本程序及其子目录下的所有资源仅供学习和研究使用，项目已开源。其旨在为学术和研究人员提供参考和资料，任何其他目的均不适用。
 
 非商业与非法用途：严禁将本程序及其内容用于任何商业或非法用途。对于因违反此规定而产生的任何法律后果，用户需自行承担全部责任。
 
@@ -603,6 +606,7 @@ class DisclaimerWindow:
 - 本程序与希沃（Seewo）公司无任何关联，不是希沃官方产品
 - 本程序不提供任何软件破解、激活或授权绕过服务
 - 用户确认已充分理解本协议内容，并具备相应的民事行为能力
+- 本项目已在GitHub开源
 
 法律参考：根据《计算机软件保护条例》（2002年1月1日实施）的第十七条规定：为了学习和研究软件内含的设计思想和原理，通过安装、显示、传输或者存储软件的方式使用软件，可以不经软件著作权人许可，不向其支付报酬。鉴于此，我们强烈建议用户在使用本程序及其内容时，遵循上述法规，并确保其行为目的仅限于学习和研究软件内部的设计思想和原理。
 
@@ -613,8 +617,8 @@ class DisclaimerWindow:
 在使用该程序及其内容前，请确保已仔细阅读并完全理解上述声明和法律参考。您的使用行为将被视为对上述内容的完全接受。
 
 隐私政策：
-更新日期：2026/2/22
-生效日期：2026/2/22
+更新日期：2026/2/27
+生效日期：2026/2/27
 
 重要说明：本程序不收集、不存储、不传输任何用户个人信息。
 
@@ -949,7 +953,7 @@ class MainWindowApp:
     # 应用程序基本信息
     CHINESE_NAME = "SEEVVO全家桶一剑下崽弃"  # 中文应用名称
     ENGLISH_NAME = "SeevvoDownloader"  # 英文应用名称
-    VERSION = "v2.0.4"  # 应用版本号
+    VERSION = VERSION  # 应用版本号
     
     # 软件列表 - 包含所有可供下载的软件
     SOFTWARE_LIST = [
