@@ -13,8 +13,6 @@ env/
 # 打包/安装文件
 dist/
 build/
-*.egg-info/
-requirements.txt.bak
 
 # IDE配置
 .idea/
@@ -23,7 +21,12 @@ requirements.txt.bak
 
 # 日志和缓存
 *.log
+Logs/
+.Logs/
 .cache/
-
-# 系统文件
-Thumbs.db
+Temporary/
+.Temporary/
+.cache/
+cache/
+Update/
+.Update/
