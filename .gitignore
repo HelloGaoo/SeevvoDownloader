@@ -30,3 +30,5 @@ Temporary/
 cache/
 Update/
 .Update/
+config/
+.config/
