@@ -1,10 +1,18 @@
-"""
-hello
-逆向了请勿泛滥源码（也没有多少参考价值）
-请勿二次封包发布 做事要讲良心！
-gaoo1228@163.com
-MrGaoZQ114514 欢迎联系哦
-"""
+# SeevvoDownloader
+# Copyright (C) [2026] [HelloGaoo]
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import ctypes
 import glob
 import hashlib
@@ -34,22 +42,21 @@ import urllib3
 from plyer import notification
 from version import __version__
 # 配置常量
-# 目录配置（基于脚本所在目录或可执行文件所在目录，避免因工作目录变化导致路径不一致）
 if getattr(sys, 'frozen', False):
-    # 编译为可执行文件时，使用可执行文件所在目录
+    # exe时
     BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
     MEIPASS_DIR = sys._MEIPASS
 else:
-    # 脚本运行时，使用脚本文件所在目录
+    # 脚本运行时
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     MEIPASS_DIR = None
 
 def extract_bundled_files():
-    """释放集成文件到当前目录"""
+    # 释放集成文件到当前目录
     if not getattr(sys, 'frozen', False) or not MEIPASS_DIR:
         return
     
-    bundled_folders = [ 'icon', 'Tools', 'config']
+    bundled_folders = ['icon', 'Tools', 'config']
     
     for folder in bundled_folders:
         src_folder = os.path.join(MEIPASS_DIR, folder)
@@ -61,7 +68,7 @@ def extract_bundled_files():
         if not os.path.exists(dst_folder):
             try:
                 shutil.copytree(src_folder, dst_folder)
-            except Exception as e:
+            except Exception:
                 pass
         else:
             for root, dirs, files in os.walk(src_folder):
@@ -92,7 +99,7 @@ UPDATE_DIR = os.path.join(BASE_DIR, "Update")
 # 工具配置
 SEVEN_ZIP_PATH = os.path.join(TOOLS_DIR, "7z.exe")
 icon_path = os.path.join(BASE_DIR, "icon", "001.ico")
-# 日志
+# 日志配置
 DEFAULT_LOG_LEVEL = logging.INFO
 LOG_FORMAT = '%(asctime)s|%(levelname)s|SeevvoDownloader.%(name)s.%(funcName)s|%(module)s:%(lineno)d|%(message)s'
 DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
@@ -106,14 +113,8 @@ SEVEN_ZIP_PASSWORD = 'zQt83iOY3xXLfDVg6SJ7ocnapy90I1d62w6jh79WlT0m1qPC8b55HU5Nk4
 
 # 为不同模块创建专门的日志记录器
 def get_logger(module_name):
-    """获取指定模块的日志记录器
-    
-    Args:
-        module_name: 模块名称，如 "Main", "Installer", "Cache"
-    
-    Returns:
-        logging.Logger: 配置好的日志记录器
-    """
+    # 获取指定模块的日志记录器
+    # module_name: 模块名称，如 "Main", "Installer", "Cache"
     return logging.getLogger(module_name)
 
 # 确保日志目录存在
@@ -151,7 +152,7 @@ def send_notification(title, message, timeout=8):
             app_icon=icon_path if os.path.exists(icon_path) else None
         )
         return True
-    except Exception as e:
+    except Exception:
         logging.getLogger("Main").error(f"发送通知失败: {e}")
         try:
             notification.notify(
@@ -175,24 +176,21 @@ def run_as_admin():
 
 # 配置日志
 def setup_logging(level=DEFAULT_LOG_LEVEL):
-    """配置日志系统
-    
-    Args:
-        level: 日志级别，默认为INFO
-    """
+    # 配置日志系统
+    # level: 日志级别，默认为INFO
     # 获取根日志记录器
     logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)  # 根日志设置为DEBUG，允许所有级别日志通过
+    logger.setLevel(logging.DEBUG)  # 根日志设置为DEBUG
     logger.handlers.clear()  # 清除默认处理器
     
-    # 创建控制台处理器 - 显示所有级别日志
+    # 创建控制台处理器
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)  # 控制台显示所有级别日志
+    console_handler.setLevel(logging.DEBUG)  # 控制台显示
     console_formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
     
-    # 创建文件处理器，使用RotatingFileHandler进行日志轮转 - 记录所有级别
+    # 创建文件处理器，使用RotatingFileHandler进行日志轮转
     timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
     log_filename = os.path.join(LOGS_DIR, f"app_{timestamp}.log")
     file_handler = RotatingFileHandler(
@@ -201,7 +199,7 @@ def setup_logging(level=DEFAULT_LOG_LEVEL):
         backupCount=LOG_BACKUP_COUNT,
         encoding='utf-8'
     )
-    file_handler.setLevel(logging.DEBUG)  # 文件记录DEBUG及以上级别
+    file_handler.setLevel(logging.DEBUG)
     file_formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
@@ -210,13 +208,10 @@ def setup_logging(level=DEFAULT_LOG_LEVEL):
 
 # 清理旧日志
 def cleanup_old_logs_by_count(directory, max_count=10, keep_count=3):
-    """清理旧日志文件，超过max_count时保留最近keep_count个
-    
-    Args:
-        directory: 日志目录
-        max_count: 日志文件最大数量阈值
-        keep_count: 超过阈值时保留的最近日志文件数量
-    """
+    # 清理旧日志文件，超过max_count时保留最近keep_count个
+    # directory: 日志目录
+    # max_count: 日志文件最大数量阈值
+    # keep_count: 超过阈值时保留的最近日志文件数量
     try:
         # 获取所有日志文件
         log_files = glob.glob(os.path.join(directory, "*.log"))
@@ -242,24 +237,21 @@ def cleanup_old_logs_by_count(directory, max_count=10, keep_count=3):
                     get_logger("Main").info(f"删除过期日志文件: {log_file}")
                     os.remove(log_file)
                     deleted_count += 1
-                except Exception as e:
+                except Exception:
                     failed_count += 1
-                    # 只记录前5个删除失败的文件，避免日志过多
+                    # 只记录前5个删除失败的文件
                     if failed_count <= 5:
                         get_logger("Main").error(f"删除日志文件 {log_file} 失败: {str(e)}")
             
-            # 只输出清理结果汇总，不输出每个文件
+            # 输出清理结果汇总
             get_logger("Main").info(f"清理日志完成: 共 {total_files} 个文件，保留 {keep_count} 个，删除 {deleted_count} 个，失败 {failed_count} 个")
-    except Exception as e:
+    except Exception:
         get_logger("Main").error(f"清理旧日志时出错: {str(e)}")
 
 # 清理旧日志主函数
 def cleanup_old_logs(directory, retention_days=LOG_RETENTION_DAYS):
-    """清理旧日志文件
-    
-    Args:
-        directory: 日志目录
-    """
+    # 清理旧日志文件
+    # directory: 日志目录
     # 数量清理，超过10个保留最近3个
     cleanup_old_logs_by_count(directory, max_count=10, keep_count=3)
 
@@ -268,24 +260,16 @@ def cleanup_old_logs(directory, retention_days=LOG_RETENTION_DAYS):
 def shared_download_file(software_name, cache_file, download_path,
                          status_cb=None, progress_cb=None, speed_cb=None,
                          logger=None, download_rate_limit=0, progress_update_interval=0.5):
-    """共享的下载实现，复用安装器的核心逻辑。
-
-    Args:
-        software_name: 软件名称
-        cache_file: 缓存文件信息（包含 url）
-        download_path: 本地写入路径
-        status_cb: Callable(status_str)
-        progress_cb: Callable(progress_int)
-        speed_cb: Callable(speed_str)
-        logger: logging.Logger 或 None
-        download_rate_limit: bytes/s 限速，0 表示不限制
-        progress_update_interval: UI 更新间隔（秒）
-
-    Returns:
-        download_path
-
-    Raises RuntimeError on failure.
-    """
+    # 共享的下载实现，复用安装器的核心逻辑
+    # software_name: 软件名称
+    # cache_file: 缓存文件信息（包含 url）
+    # download_path: 本地写入路径
+    # status_cb: 状态回调函数
+    # progress_cb: 进度回调函数
+    # speed_cb: 速度回调函数
+    # logger: 日志记录器
+    # download_rate_limit: 限速（bytes/s），0表示不限速
+    # progress_update_interval: UI更新间隔（秒）
     if logger is None:
         logger = get_logger("Downloader")
 
@@ -408,14 +392,14 @@ def shared_download_file(software_name, cache_file, download_path,
             logger.error(f"{software_name}: 文件操作失败 - {str(e)}", exc_info=True)
             _set_status("下载失败")
             raise RuntimeError(str(e)) from e
-        except Exception as e:
+        except Exception:
             logger.error(f"{software_name}: 下载异常 - {str(e)}", exc_info=True)
             _set_status("下载失败")
             raise RuntimeError(str(e)) from e
 
 
 # --------------------
-# 进程/子进程 优先级控制（Windows）
+# 进程/子进程 优先级控制
 # --------------------
 PRIORITY_CLASSES = {
     'idle': 0x40,
@@ -427,7 +411,7 @@ PRIORITY_CLASSES = {
 }
 
 def set_priority_for_pid(pid, level='below_normal'):
-    """设置指定 pid 的进程优先级（仅 Windows）。
+    """设置指定 pid 的进程优先级。
 
     level: 'idle'|'below_normal'|'normal'|'above_normal'|'high'|'realtime'
     """
@@ -448,7 +432,7 @@ def set_priority_for_pid(pid, level='below_normal'):
 
 
 def set_current_process_priority(level='high'):
-    """将当前进程优先级设置为指定级别（尽量提升 UI 响应）。"""
+    """将当前进程优先级设置为指定级别。"""
     try:
         set_priority_for_pid(os.getpid(), level)
         logging.getLogger('Main').info(f"已设置当前进程优先级为: {level}")
@@ -456,7 +440,7 @@ def set_current_process_priority(level='high'):
         logging.getLogger('Main').warning("设置当前进程优先级失败")
 
 
-# 将默认的 subprocess.Popen 包装，使子进程默认被降级为 below_normal，避免与 UI 争抢 CPU
+# 将默认的 subprocess.Popen 包装，使子进程默认被降级为 below_normal
 _original_popen = subprocess.Popen
 
 def _popen_with_priority(*popen_args, **popen_kwargs):
@@ -468,7 +452,7 @@ def _popen_with_priority(*popen_args, **popen_kwargs):
         pass
     return p
 
-# 替换 subprocess.Popen（模块导入后立即生效，对文件内所有 Popen 调用生效）
+# 替换 subprocess.Popen
 subprocess.Popen = _popen_with_priority
 
 # 确保所有目录存在
@@ -485,13 +469,13 @@ for item in os.listdir(TEMP_DIR):
             os.remove(item_path)
         elif os.path.isdir(item_path):
             shutil.rmtree(item_path)
-    except Exception as e:
+    except Exception:
         pass
 
 # 禁用SSL验证警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 确保中文显示正常
+# 确保显示正常
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
@@ -645,7 +629,7 @@ class DisclaimerWindow:
         try:
             self.textbox.insert("0.0", disclaimer_content)
             self.textbox.configure(state="disabled")  # 设置为只读
-        except Exception as e:
+        except Exception:
             try:
                 self.disclaimer_logger.error(f"插入协议内容失败: {e}")
             except Exception:
@@ -765,7 +749,7 @@ class DisclaimerWindow:
                 self.disclaimer_logger.info(f"用户协议状态已保存: {status}")
             except Exception:
                 pass
-        except Exception as e:
+        except Exception:
             try:
                 self.disclaimer_logger.error(f"保存用户协议状态失败: {e}")
             except Exception:
@@ -789,7 +773,7 @@ def check_disclaimer_status():
         except Exception:
             pass
         return False
-    except Exception as e:
+    except Exception:
         try:
             get_logger("Main").error(f"检查用户协议状态失败: {e}")
         except Exception:
@@ -897,7 +881,7 @@ def create_global_font(size, weight="normal", logger=None):
                     logger.info("使用默认无衬线字体")
                 create_global_font.font_used = True
             return font
-    except Exception as e:
+    except Exception:
         if logger:
             logger.error(f"创建字体失败: {e}")
         return ctk.CTkFont(size=size, weight=weight)
@@ -959,10 +943,9 @@ CACHE_FILES = [
     {"filename": "office2021.exe", "url": "https://c2rsetup.officeapps.live.com/c2r/download.aspx?productReleaseID=ProPlus2021Retail&platform=X64&language=zh-cn"},
 ]
 class MainWindowApp:
-    """SEEVVO全家桶一剑下崽弃主窗口应用类
+    # SEEVVO全家桶一剑下崽弃主窗口应用类
+    # 负责创建和管理应用程序的主窗口，包括软件列表显示、全选/全不选功能和开始安装功能
     
-    该类负责创建和管理应用程序的主窗口，包括软件列表显示、全选/全不选功能和开始安装功能。
-    """
     # 应用程序基本信息
     CHINESE_NAME = "SEEVVO全家桶一剑下崽弃"  # 中文应用名称
     ENGLISH_NAME = "SeevvoDownloader"  # 英文应用名称
@@ -978,10 +961,9 @@ class MainWindowApp:
     ]
 
     def __init__(self):
-        """初始化应用程序主窗口
+        # 初始化应用程序主窗口
+        # 负责初始化窗口、颜色配置、字体配置和界面组件
         
-        该方法负责初始化窗口、颜色配置、字体配置和界面组件。
-        """
         main_logger = get_logger("Main")
         main_logger.info("开始初始化主应用窗口")
         # 初始化主窗口
@@ -1085,7 +1067,7 @@ class MainWindowApp:
             icon_path = os.path.join(BASE_DIR, "icon", "001.ico")
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
-        except Exception as e:
+        except Exception:
             main_logger.error(f"设置图标时出错: {e}")
 
     def _on_main_window_close(self):
@@ -1518,14 +1500,14 @@ class MainWindowApp:
                     socket.create_connection((server, port), timeout=3)
                     main_logger.info(f"网络连接可用（通过 {server}:{port}）")
                     return True
-                except Exception as e:
+                except Exception:
                     main_logger.warning(f"连接到 {server}:{port} 失败: {e}")
                     # 继续尝试下一个服务器
             
             # 所有服务器都连接失败
             main_logger.warning("所有DNS服务器连接失败，网络连接不可用")
             return False
-        except Exception as e:
+        except Exception:
             main_logger.warning(f"网络连接检查出错: {e}")
             return False
     
@@ -1543,7 +1525,7 @@ class MainWindowApp:
                     main_logger.info(f"请求 {version_url} (尝试 {retry_count+1}/{max_retries+1})")
                     response = requests.get(version_url, timeout=10, verify=False)
                     break
-                except Exception as e:
+                except Exception:
                     retry_count += 1
                     if retry_count > max_retries:
                         raise
@@ -1572,7 +1554,7 @@ class MainWindowApp:
             else:
                 main_logger.error(f"获取最新版本号失败，状态码: {response.status_code}")
                 return False
-        except Exception as e:
+        except Exception:
             main_logger.error(f"检查更新失败: {e}", exc_info=True)
             return False
     
@@ -1584,7 +1566,7 @@ class MainWindowApp:
         
         try:
             self.root.mainloop()
-        except Exception as e:
+        except Exception:
             main_logger.critical(f"应用程序运行异常: {e}", exc_info=True)
         finally:
             main_logger.info("主窗口事件循环结束")
@@ -1630,7 +1612,7 @@ class UpdateWindow:
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
                 self.update_logger.info("更新窗口图标设置成功")
-        except Exception as e:
+        except Exception:
             self.update_logger.error(f"设置更新窗口图标时出错: {e}")
         
         # 初始化字体创建函数引用
@@ -1874,7 +1856,7 @@ class UpdateWindow:
                     self.update_logger.info(f"请求 {version_url} (尝试 {retry_count+1}/{max_retries+1})")
                     response = requests.get(version_url, timeout=10, verify=False)
                     break
-                except Exception as e:
+                except Exception:
                     retry_count += 1
                     if retry_count > max_retries:
                         raise
@@ -1914,7 +1896,7 @@ class UpdateWindow:
                     self.update_logger.info(f"请求 {changelog_url} (尝试 {retry_count+1}/{max_retries+1})")
                     response = requests.get(changelog_url, timeout=10, verify=False)
                     break
-                except Exception as e:
+                except Exception:
                     retry_count += 1
                     if retry_count > max_retries:
                         raise
@@ -1932,7 +1914,7 @@ class UpdateWindow:
             # 更新UI
             self.root.after(0, self._update_ui)
             
-        except Exception as e:
+        except Exception:
             self.update_logger.error(f"获取更新信息失败: {e}", exc_info=True)
             self.latest_version = self.VERSION
             self.changelogs = "获取更新信息时出错"
@@ -1961,7 +1943,7 @@ class UpdateWindow:
                 self.update_status = "最新"
             
             self.update_logger.info(f"版本比对结果: {self.update_status}")
-        except Exception as e:
+        except Exception:
             self.update_logger.error(f"版本比对失败: {e}", exc_info=True)
             self.update_status = "比对失败"
     
@@ -1995,7 +1977,7 @@ class UpdateWindow:
                 # 检测完成后启用按钮，让用户可以点击查看状态
                 self.update_btn.configure(state=ctk.NORMAL)
             
-        except Exception as e:
+        except Exception:
             self.update_logger.error(f"更新UI失败: {e}", exc_info=True)
     
     def _on_update_click(self):
@@ -2042,7 +2024,7 @@ class UpdateWindow:
                 head_response = requests.head(download_url, timeout=10, verify=False, allow_redirects=True)
                 total_size = int(head_response.headers.get('content-length', 0))
                 self.update_logger.info(f"文件总大小: {total_size} 字节")
-            except Exception as e:
+            except Exception:
                 self.update_logger.warning(f"无法获取文件大小: {e}")
                 total_size = 0
             
@@ -2112,7 +2094,7 @@ class UpdateWindow:
             # 准备更新
             self._prepare_update(temp_file)
             
-        except Exception as e:
+        except Exception:
             self.update_logger.error(f"下载更新失败: {e}", exc_info=True)
             self._is_downloading = False
             self.root.after(0, lambda: self._on_download_error(str(e)))
@@ -2151,7 +2133,7 @@ class UpdateWindow:
                 status_text = f"已下载: {format_size(downloaded)}"
             self.download_status_label.configure(text=status_text)
             
-        except Exception as e:
+        except Exception:
             self.update_logger.error(f"更新下载进度失败: {e}")
     
     def _prepare_update(self, downloaded_file):
@@ -2249,7 +2231,7 @@ exit
             self._is_downloading = False
             self.root.after(500, self._exit_program)
             
-        except Exception as e:
+        except Exception:
             self.update_logger.error(f"准备更新失败: {e}", exc_info=True)
             self._is_downloading = False
             self.root.after(0, lambda: messagebox.showerror("SEEVVO全家桶一剑下崽弃", f"准备更新失败: {e}"))
@@ -2340,7 +2322,7 @@ class InstallationWindow:
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
                 self.installer_logger.info("安装窗口图标设置成功")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"设置安装窗口图标时出错: {e}")
         
         # 初始化字体创建函数引用
@@ -2898,7 +2880,7 @@ class InstallationWindow:
                 # 更新状态为下载失败
                 self._update_status(software_name, "下载失败")
                 raise RuntimeError(f"{software_name}: 文件操作失败 - {str(e)}") from e
-            except Exception as e:
+            except Exception:
                 self.installer_logger.error(f"{software_name}: 下载异常 - {str(e)}", exc_info=True)
                 # 更新状态为下载失败
                 self._update_status(software_name, "下载失败")
@@ -2926,7 +2908,7 @@ class InstallationWindow:
         # 确保目标目录存在
         try:
             os.makedirs(output_dir, exist_ok=True)
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 无法创建输出目录 {output_dir}: {e}")
             self._update_status(software_name, "解压失败")
             raise
@@ -2969,7 +2951,7 @@ class InstallationWindow:
                 self.installer_logger.error(f"{software_name}: 7z 解压失败: {stderr_snippet}")
                 self._update_status(software_name, "解压失败")
                 raise RuntimeError(f"{software_name}: 7z 解压失败: {stderr_snippet}") from e
-            except Exception as e:
+            except Exception:
                 self.installer_logger.error(f"{software_name}: 使用7z解压时出现异常: {e}")
                 self._update_status(software_name, "解压失败")
                 raise
@@ -2983,7 +2965,7 @@ class InstallationWindow:
                 self.installer_logger.info(f"{software_name}: 使用zipfile解压完成")
                 self._update_progress(software_name, 70)
                 return
-            except Exception as e:
+            except Exception:
                 self.installer_logger.error(f"{software_name}: 使用zipfile解压失败: {e}")
                 self._update_status(software_name, "解压失败")
                 raise
@@ -2996,7 +2978,7 @@ class InstallationWindow:
                 # 解压完成，设置进度为70%
                 self._update_progress(software_name, 70)
                 return
-            except Exception as e:
+            except Exception:
                 self.installer_logger.error(f"{software_name}: py7zr 解压失败: {e}")
                 self._update_status(software_name, "解压失败")
                 raise
@@ -3026,7 +3008,7 @@ class InstallationWindow:
             self.installer_logger.error(f"{software_name}: 静默安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise RuntimeError(f"{software_name}: 静默安装失败 - {str(e)}") from e
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 静默安装异常 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise RuntimeError(f"{software_name}: 静默安装异常 - {str(e)}") from e
@@ -3184,7 +3166,7 @@ class InstallationWindow:
             # 文件操作出错，返回未缓存
             cache_logger.error(f"{software_name}: 文件操作异常: {e}", exc_info=True)
             return "未缓存"
-        except Exception as e:
+        except Exception:
             # 其他异常，返回未缓存
             cache_logger.error(f"{software_name}: 异常: {e}", exc_info=True)
             return "未缓存"
@@ -3254,7 +3236,7 @@ class InstallationWindow:
                 self.installer_logger.info("关闭可能存在的旧线程池")
                 self.executor.shutdown(wait=True)
                 self.installer_logger.info("旧线程池已关闭")
-            except Exception as e:
+            except Exception:
                 self.installer_logger.error(f"关闭旧线程池时出错: {str(e)}")
 
         max_workers = os.cpu_count() if os.cpu_count() else 4
@@ -3325,7 +3307,7 @@ class InstallationWindow:
                                     self._update_status(dep, "安装失败")
                                 except Exception:
                                     pass
-                except Exception as e:
+                except Exception:
                     # 主依赖失败，标记依赖项为安装失败（依赖未满足）
                     self.installer_logger.error(f"主依赖 {main_dependency} 安装失败，依赖任务将被标记为安装失败: {e}")
                     for dep in dependent_names:
@@ -3414,7 +3396,7 @@ class InstallationWindow:
                         self.installer_logger.info("关闭原来的线程池")
                         self.executor.shutdown(wait=True)
                         self.installer_logger.info("原来的线程池已关闭")
-                    except Exception as e:
+                    except Exception:
                         self.installer_logger.error(f"关闭原来的线程池时出错: {str(e)}")
                 
                 # 重新创建线程池
@@ -3481,7 +3463,7 @@ class InstallationWindow:
                                 failed_count=failed_count,
                                 operation_type="安装"
                             )
-                        except Exception as e:
+                        except Exception:
                             self.installer_logger.error(f"显示结果覆盖层失败: {str(e)}", exc_info=True)
                 
                 self.root.after(1000, wait_for_retry_tasks)
@@ -3529,7 +3511,7 @@ class InstallationWindow:
                         failed_count=failed_count,
                         operation_type="安装"
                     )
-                except Exception as e:
+                except Exception:
                     self.installer_logger.error(f"显示结果覆盖层失败: {str(e)}", exc_info=True)
         else:
             self.installer_logger.info("所有软件安装成功，关闭线程池")
@@ -3560,7 +3542,7 @@ class InstallationWindow:
                     failed_count=failed_count,
                     operation_type="安装"
                 )
-            except Exception as e:
+            except Exception:
                 self.installer_logger.error(f"显示结果覆盖层失败: {str(e)}", exc_info=True)
     
     def _install_software(self, software_name, cache_file):
@@ -3584,7 +3566,7 @@ class InstallationWindow:
             self._update_status(software_name, "已安装")
             # 安装完成，设置进度为100%
             self._update_progress(software_name, 100)
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装过程中出错 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             # 安装失败，设置进度为0%
@@ -3609,7 +3591,7 @@ class InstallationWindow:
                     break
                 else:
                     break
-            except Exception as e:
+            except Exception:
                 retry_count += 1
                 if retry_count < max_retries:
                     self.installer_logger.warning(f"清理临时文件失败，将重试 ({retry_count}/{max_retries}) - {e}")
@@ -3634,7 +3616,7 @@ class InstallationWindow:
             return False
     
     def _wait_for_process(self, software_name, process_name, timeout=30, check_interval=1):
-        """智能等待进程出现，超时返回 False
+        """等待进程出现，超时返回 False
         
         Args:
             software_name: 软件名称，用于日志记录
@@ -3658,7 +3640,7 @@ class InstallationWindow:
                 if process_name in result.stdout:
                     self.installer_logger.info(f"{software_name}: 进程 {process_name} 已出现")
                     return True
-            except Exception as e:
+            except Exception:
                 self.installer_logger.warning(f"{software_name}: 检查进程 {process_name} 时出错 - {e}")
             
             time.sleep(check_interval)
@@ -3667,7 +3649,7 @@ class InstallationWindow:
         return False
     
     def _wait_for_process_exit(self, software_name, process, timeout=60, check_interval=2):
-        """智能等待进程退出，超时返回 False
+        """等待进程退出，超时返回 False
         
         Args:
             software_name: 软件名称，用于日志记录
@@ -3691,7 +3673,7 @@ class InstallationWindow:
         return False
     
     def _wait_for_condition(self, software_name, condition_func, timeout=30, check_interval=1):
-        """智能等待条件满足，超时返回 False
+        """等待条件满足，超时返回 False
         
         Args:
             software_name: 软件名称，用于日志记录
@@ -3710,7 +3692,7 @@ class InstallationWindow:
                 if condition_func():
                     self.installer_logger.info(f"{software_name}: 条件已满足")
                     return True
-            except Exception as e:
+            except Exception:
                 self.installer_logger.warning(f"{software_name}: 检查条件时出错 - {e}")
             
             time.sleep(check_interval)
@@ -3738,7 +3720,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
     # 轻录播安装函数
@@ -3761,7 +3743,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -3786,7 +3768,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -3811,7 +3793,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -3849,7 +3831,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -3900,7 +3882,7 @@ class InstallationWindow:
             
             # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -3924,7 +3906,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -3975,7 +3957,7 @@ class InstallationWindow:
                     self.installer_logger.info(f"{software_name}: 复制main.js到 {main_js_dest}")
                     shutil.copy2(main_js_source, main_js_dest)
                     self.installer_logger.info(f"{software_name}: main.js复制完成")
-                except Exception as e:
+                except Exception:
                     self.installer_logger.warning(f"{software_name}: 复制main.js失败 - {str(e)}")
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到main.js文件: {main_js_source}")
@@ -3988,7 +3970,7 @@ class InstallationWindow:
                     self.installer_logger.info(f"{software_name}: 复制快捷方式到桌面")
                     shutil.copy2(shortcut_source, shortcut_dest)
                     self.installer_logger.info(f"{software_name}: 快捷方式已复制到桌面")
-                except Exception as e:
+                except Exception:
                     self.installer_logger.warning(f"{software_name}: 复制快捷方式失败 - {str(e)}")
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {shortcut_source}")
@@ -4009,14 +3991,14 @@ class InstallationWindow:
             try:
                 os.remove(os.path.join(TEMP_DIR, "希沃桌面.lnk"))
                 self.installer_logger.info(f"{software_name}: 删除临时文件: 希沃桌面.lnk")
-            except Exception as e:
+            except Exception:
                 self.installer_logger.warning(f"{software_name}: 删除希沃桌面.lnk失败 - {str(e)}")
             
             # 删除main.js
             try:
                 os.remove(os.path.join(TEMP_DIR, "main.js"))
                 self.installer_logger.info(f"{software_name}: 删除临时文件: main.js")
-            except Exception as e:
+            except Exception:
                 self.installer_logger.warning(f"{software_name}: 删除main.js失败 - {str(e)}")
             
             # 清理下载的安装包
@@ -4025,7 +4007,7 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4050,7 +4032,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4075,7 +4057,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4110,7 +4092,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4145,7 +4127,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4180,7 +4162,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4215,7 +4197,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4252,7 +4234,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4277,7 +4259,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4302,7 +4284,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4327,7 +4309,7 @@ class InstallationWindow:
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4352,7 +4334,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4377,7 +4359,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4402,7 +4384,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4427,7 +4409,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4452,7 +4434,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4488,7 +4470,7 @@ class InstallationWindow:
             
             self._update_status(software_name, "安装完成")
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4564,7 +4546,7 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4589,7 +4571,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4614,7 +4596,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4639,7 +4621,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4664,7 +4646,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4689,7 +4671,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4714,7 +4696,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4753,7 +4735,7 @@ class InstallationWindow:
                         self.installer_logger.info(f"{software_name}: 复制{shortcut_name}到桌面")
                         shutil.copy2(source_shortcut, dest_shortcut)
                         self.installer_logger.info(f"{software_name}: {shortcut_name}已复制到桌面")
-                    except Exception as e:
+                    except Exception:
                         self.installer_logger.warning(f"{software_name}: {error_msg}: {str(e)}")
                 else:
                     self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
@@ -4764,7 +4746,7 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4834,7 +4816,7 @@ class InstallationWindow:
                 self.installer_logger.error(f"{software_name}: 安装失败，未找到希沃白板5快捷方式")
                 self._update_status(software_name, "安装失败")
                 raise FileNotFoundError(f"未找到希沃白板5快捷方式，路径不存在: {seewowhiteboard5_lnk}")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4858,7 +4840,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4898,7 +4880,7 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4951,7 +4933,7 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -4991,7 +4973,7 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5031,7 +5013,7 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5056,7 +5038,7 @@ class InstallationWindow:
             # 启动安装程序
             process = subprocess.Popen([installer_path])
             
-            # 智能等待省平台登录插件进程出现
+            # 等待省平台登录插件进程出现
             self._wait_for_process(software_name, "省平台登录插件.exe", timeout=15, check_interval=2)
             
             # 终止安装程序进程
@@ -5068,7 +5050,7 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5130,10 +5112,10 @@ class InstallationWindow:
             # 使用/S参数进行静默安装
             process = subprocess.Popen([installer_path, "/S"])
             
-            # 智能等待seewoPincoGroup.exe进程出现
+            # 等待seewoPincoGroup.exe进程出现
             self._wait_for_process(software_name, "seewoPincoGroup.exe", timeout=20, check_interval=3)
             
-            # 智能等待安装进程退出
+            # 等待安装进程退出
             self._wait_for_process_exit(software_name, process, timeout=45, check_interval=5)
             
             # 终止进程（确保已退出）
@@ -5145,7 +5127,7 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5170,10 +5152,10 @@ class InstallationWindow:
             # 使用/S参数进行静默安装
             process = subprocess.Popen([installer_path, "/S"])
             
-            # 智能等待seewoPincoTeacher.exe进程出现
+            # 等待seewoPincoTeacher.exe进程出现
             self._wait_for_process(software_name, "seewoPincoTeacher.exe", timeout=20, check_interval=3)
             
-            # 智能等待安装进程退出
+            # 等待安装进程退出
             self._wait_for_process_exit(software_name, process, timeout=45, check_interval=5)
             
             # 终止进程（确保已退出）
@@ -5185,7 +5167,7 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5210,7 +5192,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5235,7 +5217,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5260,7 +5242,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5285,7 +5267,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5310,7 +5292,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5335,7 +5317,7 @@ class InstallationWindow:
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5371,10 +5353,10 @@ class InstallationWindow:
             try:
                 # 使用taskkill结束OfficeC2RClient.exe进程
                 subprocess.run(["taskkill", "/f", "/im", "OfficeC2RClient.exe"], check=False, shell=False)
-            except Exception as e:
+            except Exception:
                 self.installer_logger.error(f"{software_name}: 结束OfficeC2RClient.exe进程时出错: {str(e)}")
             
-            # 智能等待OfficeC2RClient.exe进程退出
+            # 等待OfficeC2RClient.exe进程退出
             def check_process_exited():
                 try:
                     result = subprocess.run(
@@ -5390,7 +5372,7 @@ class InstallationWindow:
             # 再次检查并结束OfficeC2RClient.exe进程
             try:
                 subprocess.run(["taskkill", "/f", "/im", "OfficeC2RClient.exe"], check=False, shell=False)
-            except Exception as e:
+            except Exception:
                 self.installer_logger.error(f"{software_name}: 再次结束OfficeC2RClient.exe进程时出错: {str(e)}")
             
             # 更新状态为安装完成
@@ -5399,7 +5381,7 @@ class InstallationWindow:
             
             # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
-        except Exception as e:
+        except Exception:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
@@ -5417,7 +5399,7 @@ class InstallationWindow:
             self.installer_logger.info("通知主窗口关闭")
             try:
                 self._main_window.root.deiconify()  # 显示主窗口
-            except Exception as e:
+            except Exception:
                 self.installer_logger.warning(f"显示主窗口失败: {str(e)}")
         
         # 正常退出应用程序
@@ -5447,7 +5429,7 @@ class CacheWindow:
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
                 self.logger.info("缓存窗口图标设置成功")
-        except Exception as e:
+        except Exception:
             self.logger.error(f"设置缓存窗口图标时出错: {e}")
 
         self._main_window = main_window
@@ -5692,7 +5674,7 @@ class CacheWindow:
         try:
             self.cache_executor = ThreadPoolExecutor(max_workers=(os.cpu_count() or 4))
             self.cache_futures = [self.cache_executor.submit(check_one, sw) for sw in self.selected_software]
-        except Exception as e:
+        except Exception:
             # 提交失败则关闭加载窗口并标记未缓存
             try:
                 loading.close()
@@ -6014,7 +5996,7 @@ class CacheWindow:
                         self.logger.info("ResultOverlay实例创建成功")
                         # 强制刷新GUI
                         self.root.update_idletasks()
-                    except Exception as e:
+                    except Exception:
                         self.logger.error(f"显示结果覆盖层失败: {str(e)}", exc_info=True)
                 # 在主线程中显示结果覆盖层
                 self.root.after(0, show_overlay)
@@ -6065,7 +6047,7 @@ class CacheWindow:
                     download_rate_limit=0,
                     progress_update_interval=self.progress_update_interval,
                 )
-            except Exception as e:
+            except Exception:
                 # 共享下载实现已负责重试与状态回调，这里记录并（可选）通知
                 if not getattr(self, 'aggregate_notifications', True):
                     try:
@@ -6075,7 +6057,7 @@ class CacheWindow:
                 self.root.after(0, lambda s=software: self._set_cache_status(s, "未缓存"))
                 return
 
-            # 下载完成：确保进度被标为100%，并再次校验远端大小以更新远程大小显示
+            # 下载完成：确保进度被标为100%，校验远端大小更新远程大小显示
             self.root.after(0, lambda s=software: self._update_progress(s, 100))
             # 再次尝试获取远程大小
             try:
@@ -6102,7 +6084,7 @@ class CacheWindow:
                             except Exception:
                                 pass
                 else:
-                    # 没有远程大小信息，仍视为已缓存（保留文件）
+                    # 没有远程大小信息，仍视为已缓存
                     # 标记远程大小获取失败
                     self.root.after(0, lambda s=software: self._set_remote_size(s, -1))
                     self.root.after(0, lambda s=software: self._set_cache_status(s, "已缓存"))
@@ -6138,7 +6120,7 @@ class CacheWindow:
                         except Exception:
                             pass
 
-            # 下载完成后再次校验大小（仅当已知远程大小时进行校验）
+            # 下载完成后再次校验大小
             try:
                 total_size = locals().get('server_size', None)
                 if total_size and total_size > 0:
@@ -6185,7 +6167,7 @@ class CacheWindow:
                         notification.notify(title="SEEVVO全家桶一剑下崽弃", message=f"{software} 缓存异常", app_icon=icon_path if os.path.exists(icon_path) else None)
                     except Exception:
                         pass
-        except Exception as e:
+        except Exception:
             self.logger.error(f"{software}: 缓存下载失败 - {e}")
             self.root.after(0, lambda s=software: self._set_cache_status(s, "未缓存"))
             if not getattr(self, 'aggregate_notifications', True):
@@ -6220,10 +6202,9 @@ class CacheWindow:
             pass
 
 class LoadingWindow:
-    """在父窗口上创建覆盖层（非新 TopLevel），覆盖父窗口内容并居中显示初始化信息。
+    #在父窗口上创建覆盖层，覆盖父窗口内容并居中显示初始化信息。
 
-    API 与原先保持一致：`LoadingWindow(parent, title, message)`、`set_subtext(text)`、`close()`。
-    """
+    #API 与原先保持一致：`LoadingWindow(parent, title, message)`、`set_subtext(text)`、`close()`。
     def __init__(self, parent, title="初始化", message="正在初始化"):
         self.parent = parent
         self._running = True
@@ -6262,7 +6243,7 @@ class LoadingWindow:
             self._toplevel = None
             self._prev_wm_delete = None
 
-        # 两层次布局：将容器垂直居中，并整体向上偏移约 0.3cm（≈11px）以满足视觉需求
+        # 两层次布局：将容器垂直居中，整体向上偏移11px
         container = ctk.CTkFrame(self.root, fg_color="transparent", corner_radius=0)
         try:
             # 使用 anchor='center' 将容器中心置于窗口中心，然后向上偏移 y=-11
@@ -6277,7 +6258,7 @@ class LoadingWindow:
         card = ctk.CTkFrame(container, fg_color=Colors.CARD_BACKGROUND, corner_radius=8)
         card.pack(padx=12, pady=12)
 
-        # 粗体标题（中上层）—字体更大且纯黑以增强层级感
+        # 粗体标题（中上层）
         title_label = ctk.CTkLabel(
             card,
             text=title if title else "初始化",
@@ -6288,7 +6269,7 @@ class LoadingWindow:
         )
         title_label.pack(padx=20, pady=(12, 6))
 
-        # 初始化状态文案（位于标题下方） - 字号更大、纯黑
+        # 初始化状态文案（位于标题下方）
         self.sub_label = ctk.CTkLabel(card, text=message, text_color="#000000", font=create_global_font(20, logger=get_logger("Fonts")), anchor="center", justify=ctk.CENTER)
         self.sub_label.pack(padx=20, pady=(0, 8))
 
@@ -6431,11 +6412,7 @@ class LoadingWindow:
 
 
 class ResultOverlay:
-    """在父窗口上创建覆盖层（非新 TopLevel），覆盖父窗口内容并居中显示操作结果信息。
-    
-    与初始化页面的提示覆盖层保持完全一致的视觉元素，包括尺寸、颜色、字体、图标等。
-    下方包含小字说明文本，以及"打开日志"和"确定"按钮。
-    """
+    #在父窗口上创建覆盖层，覆盖父窗口内容并居中显示操作结果信息。
     def __init__(self, parent, title="操作完成", message="操作已完成", subtext="", success_count=0, failed_count=0, operation_type="安装"):
         """初始化结果覆盖层
         
@@ -6574,7 +6551,7 @@ class ResultOverlay:
                 os.startfile(log_dir)
             else:
                 os.startfile(BASE_DIR)
-        except Exception as e:
+        except Exception:
             get_logger("Main").error(f"打开日志文件夹失败: {e}")
 
     def close(self):
@@ -6640,11 +6617,11 @@ if __name__ == "__main__":
     
     # 检查用户协议状态
     if check_disclaimer_status():
-        # 用户已同意协议，直接创建并运行主窗口
+        # 已同意协议，直接创建并运行主窗口
         app = MainWindowApp()
         app.run()
     else:
-        # 用户未同意协议，先显示协议弹窗
+        # 未同意协议，先显示协议弹窗
         # 创建临时根窗口用于显示协议
         temp_root = ctk.CTk()
         temp_root.withdraw()  # 隐藏临时窗口
@@ -6660,13 +6637,13 @@ if __name__ == "__main__":
         # 销毁临时窗口
         temp_root.destroy()
         
-        # 再次检查协议状态
+        # 再检查协议状态
         if check_disclaimer_status():
-            # 用户同意了协议，创建并运行主窗口
+            # 同意了协议，创建并运行主窗口
             app = MainWindowApp()
             app.run()
         else:
-            # 用户拒绝了协议，退出程序
+            # 拒绝了协议，退出程序
             main_logger.info("用户拒绝了许可协议，退出程序")
             sys.exit(0)
     
