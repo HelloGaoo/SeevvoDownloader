@@ -28,6 +28,7 @@ import threading
 import time
 import tkinter as tk
 import tkinter.messagebox as messagebox
+from concurrent import futures as concurrent_futures
 import winreg
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -42,23 +43,22 @@ import urllib3
 from plyer import notification
 from version import __version__
 
-# 版本号定义
 VERSION = f"v{__version__}"
-# 配置常量
+
 if getattr(sys, 'frozen', False):
     # exe时
     BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
     MEIPASS_DIR = sys._MEIPASS
 else:
-    # 脚本运行时
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     MEIPASS_DIR = None
 
 def extract_bundled_files():
-    # 释放集成文件到当前目录
+    """从打包文件中提取必要的文件夹和文件"""
     if not getattr(sys, 'frozen', False) or not MEIPASS_DIR:
         return
     
+    # 需要提取的文件夹列表
     bundled_folders = ['icon', 'Tools', 'config']
     
     for folder in bundled_folders:
@@ -90,7 +90,6 @@ def extract_bundled_files():
                         except Exception:
                             pass
 
-# 释放集成文件
 extract_bundled_files()
 LOGS_DIR = os.path.join(BASE_DIR, "Logs")
 CACHE_DIR = os.path.join(BASE_DIR, "cache")
@@ -98,11 +97,75 @@ TEMP_DIR = os.path.join(BASE_DIR, "Temporary")
 TOOLS_DIR = os.path.join(BASE_DIR, "Tools")
 UPDATE_DIR = os.path.join(BASE_DIR, "Update")
 
-
-# 工具配置
 SEVEN_ZIP_PATH = os.path.join(TOOLS_DIR, "7z.exe")
 icon_path = os.path.join(BASE_DIR, "icon", "001.ico")
-# 日志配置
+
+DOWNLOAD_SOURCES = {
+    "hk": {
+        "name": "香港加速站",
+        "prefix": "https://hk.gh-proxy.org/https://github.com"
+    },
+    "cloudflare": {
+        "name": "CloudFlare加速站",
+        "prefix": "https://gh-proxy.org/https://github.com"
+    },
+    "edgeone": {
+        "name": "EdgeOne加速站",
+        "prefix": "https://edgeone.gh-proxy.org/https://github.com"
+    }
+}
+
+DEFAULT_SOURCE = "hk"
+current_source = DEFAULT_SOURCE
+SOURCE_CONFIG_FILE = os.path.join(BASE_DIR, "config", "download_source.ini")
+
+def load_download_source():
+    """从配置文件加载下载源设置"""
+    global current_source
+    try:
+        if os.path.exists(SOURCE_CONFIG_FILE):
+            with open(SOURCE_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                saved_source = f.read().strip()
+                if saved_source in DOWNLOAD_SOURCES:
+                    current_source = saved_source
+                    return True
+    except Exception:
+        pass
+    return False
+
+def save_download_source():
+    """保存下载源设置到配置文件"""
+    try:
+        config_dir = os.path.dirname(SOURCE_CONFIG_FILE)
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir, exist_ok=True)
+        with open(SOURCE_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            f.write(current_source)
+        return True
+    except Exception:
+        return False
+
+load_download_source()
+
+def get_github_url(path):
+    """获取带有下载源前缀的GitHub URL"""
+    global current_source
+    prefix = DOWNLOAD_SOURCES[current_source]["prefix"]
+    return f"{prefix}{path}"
+
+def set_download_source(source_key):
+    """设置下载源并保存配置"""
+    global current_source
+    if source_key in DOWNLOAD_SOURCES:
+        current_source = source_key
+        save_download_source()
+        return True
+    return False
+
+def get_current_source_name():
+    """获取当前下载源的名称"""
+    return DOWNLOAD_SOURCES[current_source]["name"]
+
 DEFAULT_LOG_LEVEL = logging.INFO
 LOG_FORMAT = '%(asctime)s|%(levelname)s|SeevvoDownloader.%(name)s.%(funcName)s|%(module)s:%(lineno)d|%(message)s'
 DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
@@ -111,21 +174,16 @@ LOG_MAX_BYTES = 1 * 1024 * 1024  # 1MB
 LOG_BACKUP_COUNT = 50
 LOG_RETENTION_DAYS = 7  # 日志保留天数
 
-# 7z文件解压密码
 SEVEN_ZIP_PASSWORD = 'zQt83iOY3xXLfDVg6SJ7ocnapy90I1d62w6jh79WlT0m1qPC8b55HU5Nk4ARZFBs'
 
-# 为不同模块创建专门的日志记录器
 def get_logger(module_name):
-    # 获取指定模块的日志记录器
-    # module_name: 模块名称，如 "Main", "Installer", "Cache"
+    """获取指定模块的日志记录器"""
     return logging.getLogger(module_name)
 
-# 确保日志目录存在
 os.makedirs(LOGS_DIR, exist_ok=True)
 
-# 自定义异常钩子函数，用于捕获所有未处理的异常
 def custom_exception_hook(exctype, value, tb):
-    """自定义异常钩子，捕获所有未处理的异常并记录到日志"""
+    """自定义异常钩子，用于记录未处理的异常"""
     if issubclass(exctype, KeyboardInterrupt):
         sys.__excepthook__(exctype, value, tb)
         return
@@ -137,14 +195,15 @@ def custom_exception_hook(exctype, value, tb):
 # 设置全局异常钩子
 sys.excepthook = custom_exception_hook
 
-# 检查是否以管理员身份运行
 def is_admin():
+    """检查当前用户是否具有管理员权限"""
     try:
         return ctypes.windll.shell32.IsUserAnAdmin()
     except:
         return False
 
 def send_notification(title, message, timeout=8):
+    """发送桌面通知"""
     icon_path = os.path.join(BASE_DIR, "icon", "001.ico")
     try:
         notification.notify(
@@ -155,8 +214,8 @@ def send_notification(title, message, timeout=8):
             app_icon=icon_path if os.path.exists(icon_path) else None
         )
         return True
-    except Exception:
-        logging.getLogger("Main").error(f"发送通知失败: {e}")
+    except Exception as err:
+        logging.getLogger("Main").error(f"发送通知失败: {err}")
         try:
             notification.notify(
                 title=title,
@@ -169,6 +228,7 @@ def send_notification(title, message, timeout=8):
             return False
 
 def run_as_admin():
+    """以管理员权限重新运行当前程序"""
     try:
         ctypes.windll.shell32.ShellExecuteW(
             None, "runas", sys.executable, " ".join(sys.argv), None, 1
@@ -177,23 +237,20 @@ def run_as_admin():
     except:
         return False
 
-# 配置日志
 def setup_logging(level=DEFAULT_LOG_LEVEL):
-    # 配置日志系统
-    # level: 日志级别，默认为INFO
-    # 获取根日志记录器
+    """配置日志系统"""
     logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)  # 根日志设置为DEBUG
-    logger.handlers.clear()  # 清除默认处理器
+    logger.setLevel(logging.DEBUG)
+    logger.handlers.clear()
     
-    # 创建控制台处理器
+    # 控制台日志
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)  # 控制台显示
+    console_handler.setLevel(logging.DEBUG)
     console_formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
     
-    # 创建文件处理器，使用RotatingFileHandler进行日志轮转
+    # 文件日志
     timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
     log_filename = os.path.join(LOGS_DIR, f"app_{timestamp}.log")
     file_handler = RotatingFileHandler(
@@ -209,74 +266,61 @@ def setup_logging(level=DEFAULT_LOG_LEVEL):
     
     return logger
 
-# 清理旧日志
 def cleanup_old_logs_by_count(directory, max_count=10, keep_count=3):
-    # 清理旧日志文件，超过max_count时保留最近keep_count个
-    # directory: 日志目录
-    # max_count: 日志文件最大数量阈值
-    # keep_count: 超过阈值时保留的最近日志文件数量
+    """根据文件数量清理旧日志文件"""
     try:
-        # 获取所有日志文件
         log_files = glob.glob(os.path.join(directory, "*.log"))
         log_files.extend(glob.glob(os.path.join(directory, "*.log.*")))
         
-        # 过滤掉非文件项
         log_files = [f for f in log_files if os.path.isfile(f)]
         
-        # 如果文件数量超过阈值
         if len(log_files) > max_count:
-            # 按修改时间排序，最新的在前
             log_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
             
-            # 计算需要删除的文件数量
             files_to_delete = log_files[keep_count:]
             total_files = len(log_files)
             deleted_count = 0
             failed_count = 0
             
-            # 保留最近的keep_count个，删除其余的
             for log_file in files_to_delete:
                 try:
                     get_logger("Main").info(f"删除过期日志文件: {log_file}")
                     os.remove(log_file)
                     deleted_count += 1
-                except Exception:
+                except Exception as err:
                     failed_count += 1
-                    # 只记录前5个删除失败的文件
                     if failed_count <= 5:
-                        get_logger("Main").error(f"删除日志文件 {log_file} 失败: {str(e)}")
+                        get_logger("Main").error(f"删除日志文件 {log_file} 失败: {str(err)}")
             
-            # 输出清理结果汇总
             get_logger("Main").info(f"清理日志完成: 共 {total_files} 个文件，保留 {keep_count} 个，删除 {deleted_count} 个，失败 {failed_count} 个")
-    except Exception:
-        get_logger("Main").error(f"清理旧日志时出错: {str(e)}")
+    except Exception as err:
+        get_logger("Main").error(f"清理旧日志时出错: {str(err)}")
 
-# 清理旧日志主函数
 def cleanup_old_logs(directory, retention_days=LOG_RETENTION_DAYS):
-    # 清理旧日志文件
-    # directory: 日志目录
+    """清理旧日志文件"""
     # 数量清理，超过10个保留最近3个
     cleanup_old_logs_by_count(directory, max_count=10, keep_count=3)
 
 
-# 共享下载函数（供安装器和缓存器复用，参数化 UI 回调）
 def shared_download_file(software_name, cache_file, download_path,
                          status_cb=None, progress_cb=None, speed_cb=None,
                          logger=None, download_rate_limit=0, progress_update_interval=0.5):
-    # 共享的下载实现，复用安装器的核心逻辑
-    # software_name: 软件名称
-    # cache_file: 缓存文件信息（包含 url）
-    # download_path: 本地写入路径
-    # status_cb: 状态回调函数
-    # progress_cb: 进度回调函数
-    # speed_cb: 速度回调函数
-    # logger: 日志记录器
-    # download_rate_limit: 限速（bytes/s），0表示不限速
-    # progress_update_interval: UI更新间隔（秒）
+    """共享下载函数
+    
+    Args:
+        software_name: 软件名称
+        cache_file: 缓存文件信息（包含 url）
+        download_path: 本地写入路径
+        status_cb: 状态回调函数
+        progress_cb: 进度回调函数
+        speed_cb: 速度回调函数
+        logger: 日志记录器
+        download_rate_limit: 限速（bytes/s），0表示不限速
+        progress_update_interval: UI更新间隔（秒）
+    """
     if logger is None:
         logger = get_logger("Downloader")
 
-    # 更新状态回调
     def _set_status(s):
         try:
             if status_cb:
@@ -313,7 +357,7 @@ def shared_download_file(software_name, cache_file, download_path,
         "Cache-Control": "max-age=0"
     }
 
-    url = cache_file.get("url") if isinstance(cache_file, dict) else None
+    url = get_download_url(cache_file) if isinstance(cache_file, dict) else None
     if not url:
         logger.error(f"{software_name}: 未提供下载 URL")
         _set_status("下载失败")
@@ -335,6 +379,10 @@ def shared_download_file(software_name, cache_file, download_path,
             response.raise_for_status()
             total_size = int(response.headers.get('content-length', 0))
             logger.info(f"{software_name}: 文件大小: {total_size} bytes")
+
+            download_dir = os.path.dirname(download_path)
+            if download_dir and not os.path.exists(download_dir):
+                os.makedirs(download_dir, exist_ok=True)
 
             downloaded_size = 0
             start_time = time.time()
@@ -414,9 +462,14 @@ PRIORITY_CLASSES = {
 }
 
 def set_priority_for_pid(pid, level='below_normal'):
-    """设置指定 pid 的进程优先级。
-
-    level: 'idle'|'below_normal'|'normal'|'above_normal'|'high'|'realtime'
+    """设置指定 pid 的进程优先级
+    
+    Args:
+        pid: 进程ID
+        level: 优先级级别，可选值：'idle'|'below_normal'|'normal'|'above_normal'|'high'|'realtime'
+    
+    Returns:
+        bool: 设置是否成功
     """
     try:
         level_const = PRIORITY_CLASSES.get(level, PRIORITY_CLASSES['normal'])
@@ -435,7 +488,11 @@ def set_priority_for_pid(pid, level='below_normal'):
 
 
 def set_current_process_priority(level='high'):
-    """将当前进程优先级设置为指定级别。"""
+    """将当前进程优先级设置为指定级别
+    
+    Args:
+        level: 优先级级别，可选值：'idle'|'below_normal'|'normal'|'above_normal'|'high'|'realtime'
+    """
     try:
         set_priority_for_pid(os.getpid(), level)
         logging.getLogger('Main').info(f"已设置当前进程优先级为: {level}")
@@ -443,28 +500,28 @@ def set_current_process_priority(level='high'):
         logging.getLogger('Main').warning("设置当前进程优先级失败")
 
 
-# 将默认的 subprocess.Popen 包装，使子进程默认被降级为 below_normal
 _original_popen = subprocess.Popen
 
 def _popen_with_priority(*popen_args, **popen_kwargs):
-    p = _original_popen(*popen_args, **popen_kwargs)
+    """为子进程设置优先级的包装函数"""
+    process = _original_popen(*popen_args, **popen_kwargs)
     try:
         # 将子进程优先级降到 below_normal
-        set_priority_for_pid(p.pid, 'below_normal')
+        set_priority_for_pid(process.pid, 'below_normal')
     except Exception:
         pass
-    return p
+    return process
 
 # 替换 subprocess.Popen
 subprocess.Popen = _popen_with_priority
 
-# 确保所有目录存在
+# 创建必要的目录
 os.makedirs(LOGS_DIR, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(UPDATE_DIR, exist_ok=True)
 
-# 清理Temporary目录中的所有文件和文件夹
+# 清理临时目录
 for item in os.listdir(TEMP_DIR):
     item_path = os.path.join(TEMP_DIR, item)
     try:
@@ -478,44 +535,33 @@ for item in os.listdir(TEMP_DIR):
 # 禁用SSL验证警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 确保显示正常
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
-# 用户协议弹窗类
 class DisclaimerWindow:
-    """软件用户使用协议及免责协议弹窗"""
+    """用户协议窗口"""
     def __init__(self, main_app=None, parent_root=None):
         self.disclaimer_logger = get_logger("Disclaimer")
         self.disclaimer_logger.info("初始化用户协议窗口")
         self.main_app = main_app
         
-        # 确定根窗口
         if parent_root:
-            # 使用提供的父窗口
             self.root = ctk.CTkToplevel(parent_root)
         elif main_app and hasattr(main_app, 'root'):
-            # 使用主应用的根窗口
             self.root = ctk.CTkToplevel(main_app.root)
-            # 阻止主窗口显示
             main_app.root.withdraw()
         else:
-            # 创建独立的根窗口
             self.root = ctk.CTk()
         
         self.root.title(f"SEEVVO全家桶一剑下崽弃 {MainWindowApp.VERSION} - 软件用户使用协议及免责协议 - 作者：HelloGaoo & WHYOS")
         self.root.geometry("1000x650")
-        self.root.resizable(False, False)  # 禁用窗口调整大小
+        self.root.resizable(False, False)
         
-        # 绑定窗口关闭事件
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
-        # 创建界面
         self._create_widgets()
         
     def _create_widgets(self):
-        """创建协议弹窗的界面组件"""
-        # 主框架
         main_frame = ctk.CTkFrame(self.root, fg_color=Colors.BACKGROUND)
         main_frame.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
         
@@ -539,7 +585,6 @@ class DisclaimerWindow:
         )
         title_bar.pack(fill=ctk.X, padx=Dimensions.PADX_LARGE, pady=(Dimensions.PADY_LARGE, Dimensions.PADY_MEDIUM))
         
-        # 标题
         title_label = ctk.CTkLabel(
             title_bar,
             text="软件用户使用协议及免责协议",
@@ -548,7 +593,6 @@ class DisclaimerWindow:
         )
         title_label.pack(anchor="w")
         
-        # 分隔线
         divider = ctk.CTkFrame(
             card_frame,
             fg_color=Colors.SECTION_DIVIDER,
@@ -557,7 +601,6 @@ class DisclaimerWindow:
         )
         divider.pack(fill=ctk.X, padx=Dimensions.PADX_LARGE)
         
-        # 协议内容框
         self.textbox = ctk.CTkTextbox(
             card_frame,
             fg_color=Colors.CARD_BACKGROUND,
@@ -567,7 +610,6 @@ class DisclaimerWindow:
             font=create_global_font(14, logger=get_logger("Fonts"))
         )
         self.textbox.pack(fill=ctk.BOTH, expand=True, padx=Dimensions.PADX_LARGE, pady=Dimensions.PADY_LARGE)
-        # 仅允许通过拖动标题栏（或标题文本）来移动弹窗，避免在文本框内选择时移动窗口
         try:
             title_bar.bind("<Button-1>", self._start_move)
             title_bar.bind("<B1-Motion>", self._on_move)
@@ -576,7 +618,6 @@ class DisclaimerWindow:
         except Exception:
             pass
         
-        # 插入协议内容
         disclaimer_content = """免责声明及法律参考：
 更新日期：2026/2/27
 生效日期：2026/2/27
@@ -633,7 +674,7 @@ class DisclaimerWindow:
         try:
             self.textbox.insert("0.0", disclaimer_content)
             self.textbox.configure(state="disabled")  # 设置为只读
-        except Exception:
+        except Exception as e:
             try:
                 self.disclaimer_logger.error(f"插入协议内容失败: {e}")
             except Exception:
@@ -641,14 +682,12 @@ class DisclaimerWindow:
             self.textbox.insert("0.0", "无法加载协议内容。")
             self.textbox.configure(state="disabled")
         
-        # 按钮框架
         button_frame = ctk.CTkFrame(card_frame, fg_color=Colors.CARD_BACKGROUND, border_width=0)
         button_frame.pack(pady=(0, Dimensions.PADY_LARGE), fill=ctk.X, padx=Dimensions.PADX_LARGE)
         
         btn_container = ctk.CTkFrame(button_frame, fg_color="transparent")
         btn_container.pack(anchor="e", padx=Dimensions.PADY_SMALL)
         
-        # 同意按钮
         self.agree_btn = ctk.CTkButton(
             btn_container,
             text="同意",
@@ -661,7 +700,6 @@ class DisclaimerWindow:
         )
         self.agree_btn.pack(side=ctk.RIGHT, padx=Dimensions.PADX_MEDIUM)
         
-        # 不同意按钮
         self.disagree_btn = ctk.CTkButton(
             btn_container,
             text="不同意",
@@ -674,7 +712,6 @@ class DisclaimerWindow:
         )
         self.disagree_btn.pack(side=ctk.RIGHT, padx=Dimensions.PADX_MEDIUM)
         
-        # 添加联系信息到主框架底部
         contact_label = ctk.CTkLabel(
             main_frame,
             text="作者：HelloGaoo & WHYOS | 用户需自觉遵守并履行协议。如果资源存在违规或侵犯了您的合法权益，请联系作者我们会及时删除。邮箱：gaoo1228@163.com",
@@ -688,10 +725,9 @@ class DisclaimerWindow:
         """用户同意协议"""
         self._save_disclaimer_status(True)
         self.root.destroy()
-        # 如果有主应用实例，显示主窗口
         if self.main_app and hasattr(self.main_app, 'root'):
             try:
-                self.main_app.root.deiconify()  # 显示主窗口
+                self.main_app.root.deiconify()
             except Exception:
                 pass
     
@@ -699,7 +735,6 @@ class DisclaimerWindow:
         """用户不同意协议"""
         self._save_disclaimer_status(False)
         self.root.destroy()
-        # 如果有主应用实例，销毁主窗口
         if self.main_app and hasattr(self.main_app, 'root'):
             try:
                 self.main_app.root.destroy()  # 退出应用
@@ -709,11 +744,11 @@ class DisclaimerWindow:
             sys.exit(0)
     
     def on_close(self):
-        """用户关闭窗口，视为不同意"""
+        """窗口关闭事件处理"""
         self.on_disagree()
 
     def _start_move(self, event):
-        """记录拖动起始位置（以屏幕坐标为准）"""
+        """开始拖动窗口"""
         try:
             self._drag_start_x = event.x_root
             self._drag_start_y = event.y_root
@@ -723,7 +758,7 @@ class DisclaimerWindow:
             pass
 
     def _on_move(self, event):
-        """在拖动时移动顶层窗口"""
+        """拖动窗口"""
         try:
             dx = event.x_root - getattr(self, '_drag_start_x', event.x_root)
             dy = event.y_root - getattr(self, '_drag_start_y', event.y_root)
@@ -753,15 +788,14 @@ class DisclaimerWindow:
                 self.disclaimer_logger.info(f"用户协议状态已保存: {status}")
             except Exception:
                 pass
-        except Exception:
+        except Exception as e:
             try:
                 self.disclaimer_logger.error(f"保存用户协议状态失败: {e}")
             except Exception:
                 pass
 
-# 检查用户协议状态
 def check_disclaimer_status():
-    """检查用户是否已经同意协议"""
+    """检查用户协议状态"""
     try:
         disclaimer_file = os.path.join(BASE_DIR, "config", "Disclaimer.ini")
         if os.path.exists(disclaimer_file):
@@ -777,7 +811,7 @@ def check_disclaimer_status():
         except Exception:
             pass
         return False
-    except Exception:
+    except Exception as e:
         try:
             get_logger("Main").error(f"检查用户协议状态失败: {e}")
         except Exception:
@@ -786,6 +820,7 @@ def check_disclaimer_status():
 
 # 颜色配置
 class Colors:
+    """颜色配置类"""
     BACKGROUND = "#f5f7fa"
     BORDER = "#e0e5ec"
     TEXT = "#2d3748"
@@ -815,6 +850,7 @@ class Colors:
 
 # 尺寸配置
 class Dimensions:
+    """尺寸配置类"""
     # 主窗口配置
     MAIN_WINDOW_WIDTH = 1100
     MAIN_WINDOW_HEIGHT = 740
@@ -844,13 +880,21 @@ class Dimensions:
 
 
 
-# 全局字体创建函数
 def create_global_font(size, weight="normal", logger=None):
-    # 字体优先级列表 - 首用微软雅黑，其次是思源黑体
+    """创建全局字体
+    
+    Args:
+        size: 字体大小
+        weight: 字体粗细，默认为"normal"
+        logger: 日志记录器
+    
+    Returns:
+        ctk.CTkFont: 创建的字体对象
+    """
     preferred_fonts = [
         "Microsoft YaHei UI",
         "Microsoft YaHei",
-        "Source Han Sans CN",  # 思源黑体
+        "Source Han Sans CN",
         "SimHei",
         "Segoe UI",
         "Arial"
@@ -875,7 +919,6 @@ def create_global_font(size, weight="normal", logger=None):
                 create_global_font.font_used = True
             return font
         else:
-            # 立即返回回退字体，避免阻塞窗口显示
             font = ctk.CTkFont(family="sans-serif", size=size, weight=weight)
             if hasattr(font, 'actual') and not hasattr(create_global_font, "font_used") and logger:
                 try:
@@ -885,7 +928,7 @@ def create_global_font(size, weight="normal", logger=None):
                     logger.info("使用默认无衬线字体")
                 create_global_font.font_used = True
             return font
-    except Exception:
+    except Exception as e:
         if logger:
             logger.error(f"创建字体失败: {e}")
         return ctk.CTkFont(size=size, weight=weight)
@@ -894,68 +937,72 @@ def create_global_font(size, weight="normal", logger=None):
 
 
 # 缓存文件信息列表
+# github_path: GitHub路径
+# url: 官网
 CACHE_FILES = [
     {"filename": "剪辑师.exe", "url": "https://store-g1.seewo.com/seewo-report_a8af6d2a461847f1b851d31a6b391428?attname=Jianjishi_1.7.0.775.exe"},
     {"filename": "轻录播.exe", "url": "https://store-g1.seewo.com/seewo-report_86c15cf3e8b34875bacc4e0aa391b401?attname=EasiRecorderSetup_1.0.2.540.exe"},
     {"filename": "知识胶囊.exe", "url": "https://cstore-pub-seewo-report-tx.seewo.com/seewo-report_fd2dc77b5ee24f83a9f6ce257e44fb4d?attname=EasiCapsuleSetup_2.4.0.7802.exe"},
     {"filename": "掌上看班.exe", "url": "https://imlizhi-store-https.seewo.com/SeewoHugoKanbanWebApp_1.4.5.68(20240329093729).exe"},
-    {"filename": "激活工具.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/HEU_KMS_Activator.7z"},
-    {"filename": "希沃壁纸.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoWallpaper.7z"},
+    {"filename": "激活工具.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/HEU_KMS_Activator.7z"},
+    {"filename": "希沃壁纸.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoWallpaper.7z"},
     {"filename": "希沃管家.exe", "url": "https://cstore-pub-seewo-report-tx.seewo.com/seewo-report_79fc6c21a6694bf29160feda273b99c7?attname=SeewoServiceSetup_1.3.6.3254.exe"},
-    {"filename": "希沃桌面.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoDesktop.7z"},
+    {"filename": "希沃桌面.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoDesktop.7z"},
     {"filename": "希沃快传.exe", "url": "https://imlizhi-store-https.seewo.com/SeewoFileTransfer_2.0.10(20240830095652).exe"},
     {"filename": "希沃集控.exe", "url": "https://store-g1.seewo.com/seewo-report_abc60b691ca74da088507021f92bc381?attname=SeewoHugoWebApp_1.1.8.42.exe"},
-    {"filename": "希沃截图.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoScreenshot.7z"},
-    {"filename": "希沃批注.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoAnnotation.7z"},
-    {"filename": "希沃计时器.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoTimer.7z"},
-    {"filename": "希沃放大镜.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoMagnifier.7z"},
-    {"filename": "希沃浏览器.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoBrowser.7z"},
+    {"filename": "希沃截图.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoScreenshot.7z"},
+    {"filename": "希沃批注.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoAnnotation.7z"},
+    {"filename": "希沃计时器.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoTimer.7z"},
+    {"filename": "希沃放大镜.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoMagnifier.7z"},
+    {"filename": "希沃浏览器.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoBrowser.7z"},
     {"filename": "希沃智能笔.exe", "url": "https://imlizhi-store-https.seewo.com/SmartpenServiceSetup_2.0.1.749(20240619165806).exe"},
-    {"filename": "反馈器助手.exe", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/feedbackAssistant.exe"},
+    {"filename": "反馈器助手.exe", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/feedbackAssistant.exe"},
     {"filename": "希沃易课堂.exe", "url": "https://cstore-pub-seewo-report-tx.seewo.com/seewo-report_31a18b9dc7e74439b42669918dbdaf55?attname=EasiClassSetup_2.1.22.6341.exe"},
     {"filename": "希沃输入法.exe", "url": "https://imlizhi-store-https.seewo.com/seewoinput_1.0.5(20250820092142).exe"},
     {"filename": "PPT小工具.exe", "url": "https://store-g1.seewo.com/seewo-report_6594548a69c34306af2c9cc73a060e19?attname=PPTServiceSetup_1.0.0.795.exe"},
     {"filename": "希沃轻白板.exe", "url": "https://imlizhi-store-https.seewo.com/EasiNote5C_1.0.1.8095(20240703115236).exe"},
     {"filename": "希沃白板5.exe", "url": "https://cstore-pub-seewo-report-tx.seewo.com/seewo-report_2fc45eb4318e41c4bc538fd0660bae43?attname=EasiNoteSetup_5.2.4.9120_seewo.exe"},
-    {"filename": "希沃白板3.exe", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewowhiteboard3.exe"},
-    {"filename": "ikun启动图.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/ikunSplashScreen.7z"},
-    {"filename": "白板去除横幅.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/Remove_banner_from_whiteboard.7z"},
+    {"filename": "希沃白板3.exe", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewowhiteboard3.exe"},
+    {"filename": "ikun启动图.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/ikunSplashScreen.7z"},
+    {"filename": "白板去除横幅.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/Remove_banner_from_whiteboard.7z"},
     {"filename": "班级优化大师.exe", "url": "https://imlizhi-store-https.seewo.com/EasiCare_PC_2.1.0.3239(20250328203940).exe"},
     {"filename": "希沃课堂助手.exe", "url": "https://cstore-pub-seewo-report-tx.seewo.com/seewo-report_83de79eec5a94c07a337baeab68a8b07?attname=SeewoIwbAssistant_0.0.3.1207.exe"},
     {"filename": "希沃电脑助手.exe", "url": "https://imlizhi-store-https.seewo.com/seewoPCAssistant_2.1.6(20250523210530).exe"},
     {"filename": "希沃导播助手.exe", "url": "https://imlizhi-store-https.seewo.com/EasiDirector_1.0.10.195(20211105150841).exe"},
     {"filename": "希沃视频展台.exe", "url": "https://cstore-pub-seewo-report-tx.seewo.com/seewo-report_12f92ef48ca24ec982a5803393c2f719?attname=EasiCameraSetup_2.0.10.3816.exe"},
     {"filename": "希沃物联校园.exe", "url": "https://imlizhi-store-https.seewo.com/SeewoIotManageWebApp_1.0.0.8(20210609110648).exe"},
-    {"filename": "希沃互动签名.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoInteractiveSignature.7z"},
-    {"filename": "希沃伪装插件.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoDisguisePlugin.7z"},
+    {"filename": "希沃互动签名.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoInteractiveSignature.7z"},
+    {"filename": "希沃伪装插件.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoDisguisePlugin.7z"},
     {"filename": "远程互动课堂.exe", "url": "https://imlizhi-store-https.seewo.com/AirTeach_AirteachSetup_2.0.17.17064(20250507123142).exe"},
-    {"filename": "AGC解锁工具.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/agcUnlockTool.7z"},
-    {"filename": "触摸服务程序.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/touchServiceProgram.7z"},
-    {"filename": "希沃随机抽选.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoLuckyRandom.7z"},
-    {"filename": "触摸框测试程序.7z", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/touchFrameTestProgram.7z"},
+    {"filename": "AGC解锁工具.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/agcUnlockTool.7z"},
+    {"filename": "触摸服务程序.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/touchServiceProgram.7z"},
+    {"filename": "希沃随机抽选.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/seewoLuckyRandom.7z"},
+    {"filename": "触摸框测试程序.7z", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/touchFrameTestProgram.7z"},
     {"filename": "省平台登录插件.exe", "url": "https://imlizhi-store-https.seewo.com/EasiNote_plugin_anhui_V0.1(20200616170758).exe"},
     {"filename": "希象传屏[发送端].exe", "url": "https://imlizhi-store-https.seewo.com/ExceedShare_6.7.1.20(20250610165636).exe"},
-    {"filename": "希象传屏[接收端].exe", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/screensharesuite.exe"},
+    {"filename": "希象传屏[接收端].exe", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/screensharesuite.exe"},
     {"filename": "希沃品课[小组端].exe", "url": "https://cstore-pub-seewo-report-tx.seewo.com/seewo-report_5d829b9cd5e24d5fa1c0a2b5602c9d6e?attname=seewoPincoGroupSetup_1.2.30.1640.exe"},
     {"filename": "希沃品课[教师端].exe", "url": "https://imlizhi-store-https.seewo.com/seewoPincoTeacher_1.2.43.7285(20250530191221).exe"},
     {"filename": "希沃易启学[学生端].exe", "url": "https://imlizhi-store-https.seewo.com/SeewoYiQiXueStudent_1.3.14.4413(20250717180417).exe"},
     {"filename": "希沃易启学[教师端].exe", "url": "https://imlizhi-store-https.seewo.com/SeewoYiQiXueTeacher_1.3.14.4413(20250717180300).exe"},
     {"filename": "微信.exe", "url": "https://dldir1v6.qq.com/weixin/Universal/Windows/WeChatWin.exe"},
     {"filename": "QQ.exe", "url": "https://dldir1v6.qq.com/qqfile/qq/QQNT/Windows/QQ_9.9.21_250822_x64_01.exe"},
-    {"filename": "UU远程.exe", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/uuyc_4.16.5_gwgame.exe"},
-    {"filename": "网易云音乐.exe", "url": "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/neteaseCloudMusic.exe"},
+    {"filename": "UU远程.exe", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/uuyc_4.16.5_gwgame.exe"},
+    {"filename": "网易云音乐.exe", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/neteaseCloudMusic.exe"},
     {"filename": "office2021.exe", "url": "https://c2rsetup.officeapps.live.com/c2r/download.aspx?productReleaseID=ProPlus2021Retail&platform=X64&language=zh-cn"},
 ]
+
+def get_download_url(file_info):
+    if "github_path" in file_info:
+        return get_github_url(file_info["github_path"])
+    return file_info.get("url", "")
+
 class MainWindowApp:
-    # SEEVVO全家桶一剑下崽弃主窗口应用类
-    # 负责创建和管理应用程序的主窗口，包括软件列表显示、全选/全不选功能和开始安装功能
+    """主窗口应用类"""
+    CHINESE_NAME = "SEEVVO全家桶一剑下崽弃"
+    ENGLISH_NAME = "SeevvoDownloader"
+    VERSION = VERSION
     
-    # 应用程序基本信息
-    CHINESE_NAME = "SEEVVO全家桶一剑下崽弃"  # 中文应用名称
-    ENGLISH_NAME = "SeevvoDownloader"  # 英文应用名称
-    VERSION = VERSION  # 应用版本号
-    
-    # 软件列表 - 包含所有可供下载的软件
     SOFTWARE_LIST = [
         "剪辑师", "轻录播", "知识胶囊", "掌上看班", "激活工具", "希沃壁纸", "希沃管家", "希沃桌面", "希沃快传", "希沃集控",
         "希沃截图", "希沃批注", "希沃计时器", "希沃放大镜", "希沃浏览器", "希沃智能笔", "反馈器助手", "希沃易课堂", "希沃输入法", "PPT小工具",
@@ -965,39 +1012,29 @@ class MainWindowApp:
     ]
 
     def __init__(self):
-        # 初始化应用程序主窗口
-        # 负责初始化窗口、颜色配置、字体配置和界面组件
-        
         main_logger = get_logger("Main")
         main_logger.info("开始初始化主应用窗口")
-        # 初始化主窗口
         self.root = ctk.CTk()
         self.root.title(f"SEEVVO全家桶一剑下崽弃 {self.VERSION} - 主窗口 - 作者：HelloGaoo & WHYOS")
         self.root.geometry(f"{Dimensions.MAIN_WINDOW_WIDTH}x{Dimensions.MAIN_WINDOW_HEIGHT}")
-        self.root.resizable(False, False)  # 禁止调整窗口大小
+        self.root.resizable(False, False)
         
-        # 绑定主窗口关闭事件
         self.root.protocol("WM_DELETE_WINDOW", self._on_main_window_close)
         
         main_logger.info(f"主窗口创建完成，标题: {self.root.title()}, 尺寸: {Dimensions.MAIN_WINDOW_WIDTH}x{Dimensions.MAIN_WINDOW_HEIGHT}")
         
-        # 初始化窗口设置
-        self._init_window()   # 初始化窗口设置
+        self._init_window()
         
-        # 初始化状态变量
         self.software_checkboxes = {}  # 存储所有软件复选框
         self.is_all_selected = False   # 全选状态标志
         self.install_window = None     # 安装窗口实例引用
         self.update_window = None      # 更新窗口实例引用
         
-        # 初始化字体创建函数引用
         self.fonts_logger = get_logger("Fonts")
         self.create_font = create_global_font
         
-        # 创建界面组件
-        self._create_all_widgets()     # 创建所有界面组件
+        self._create_all_widgets()
         
-        # 检测网络连接
         main_logger.info("检测网络连接状态")
         is_network_available = self._check_network_availability()
         
@@ -1012,31 +1049,22 @@ class MainWindowApp:
                 should_open_update_window = self._check_update_status()
                 if should_open_update_window:
                     main_logger.info("检测到新版本，检查许可协议状态")
-                    # 检查用户是否已经同意许可协议
                     if check_disclaimer_status():
-                        # 用户已同意许可协议，直接打开更新窗口
                         main_logger.info("用户已同意许可协议，直接打开更新窗口")
                         self.root.after(0, lambda: self.open_update_window())
                     else:
-                        # 用户未同意许可协议，先打开许可协议窗口
                         main_logger.info("用户未同意许可协议，先打开许可协议窗口")
                         def open_disclaimer_then_update():
-                            # 创建许可协议窗口
                             disclaimer_window = DisclaimerWindow(self)
-                            # 等待许可协议窗口关闭
                             self.root.wait_window(disclaimer_window.root)
-                            # 再次检查许可协议状态
                             if check_disclaimer_status():
-                                # 用户同意了许可协议，打开更新窗口
                                 main_logger.info("用户同意了许可协议，打开更新窗口")
                                 self.open_update_window()
-                        # 在主线程中执行
                         self.root.after(0, open_disclaimer_then_update)
             
             update_thread = threading.Thread(target=check_update_in_background, daemon=True)
             update_thread.start()
             
-            # 监控线程并在完成后关闭加载窗口
             def monitor():
                 try:
                     if update_thread.is_alive():
@@ -1064,14 +1092,13 @@ class MainWindowApp:
         self.root.attributes("-alpha", 1.0)
         self.root.attributes("-transparentcolor", "#000001")
         
-        # 优化窗口重绘性能
         self.root.update_idletasks()
 
         try:
             icon_path = os.path.join(BASE_DIR, "icon", "001.ico")
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
-        except Exception:
+        except Exception as e:
             main_logger.error(f"设置图标时出错: {e}")
 
     def _on_main_window_close(self):
@@ -1079,7 +1106,6 @@ class MainWindowApp:
         main_logger = get_logger("Main")
         main_logger.info("主窗口关闭事件触发")
         
-        # 关闭安装窗口（如果存在）
         if hasattr(self, 'install_window') and self.install_window is not None:
             try:
                 main_logger.info("关闭安装窗口")
@@ -1087,7 +1113,6 @@ class MainWindowApp:
             except (AttributeError, TclError):
                 main_logger.info("安装窗口已关闭")
         
-        # 销毁主窗口
         main_logger.info("销毁主窗口")
         self.root.destroy()
         
@@ -1095,7 +1120,7 @@ class MainWindowApp:
         sys.exit(0)
     
     def _create_all_widgets(self):
-        """创建所有界面组件"""
+        """创建主窗口所有组件"""
         main_frame = ctk.CTkFrame(self.root, fg_color=Colors.BACKGROUND, corner_radius=0)
         main_frame.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
         
@@ -1119,13 +1144,44 @@ class MainWindowApp:
         )
         title_bar.pack(fill=ctk.X, padx=Dimensions.PADX_LARGE, pady=(Dimensions.PADY_LARGE, Dimensions.PADY_MEDIUM))
         
+        title_row = ctk.CTkFrame(title_bar, fg_color="transparent")
+        title_row.pack(fill=ctk.X)
+        
         title_label = ctk.CTkLabel(
-            title_bar,
+            title_row,
             text="软件列表",
             text_color=Colors.TEXT,
             font=self.create_font(24, "bold", logger=self.fonts_logger)
         )
-        title_label.pack(anchor="w")
+        title_label.pack(side="left")
+        
+        source_frame = ctk.CTkFrame(title_row, fg_color="transparent")
+        source_frame.pack(side="right")
+        
+        source_label = ctk.CTkLabel(
+            source_frame,
+            text="GitHub下载源:",
+            text_color=Colors.TEXT_SECONDARY,
+            font=self.create_font(12, "normal", logger=self.fonts_logger)
+        )
+        source_label.pack(side="left", padx=(0, 5))
+        
+        self.source_var = ctk.StringVar(value=current_source)
+        source_menu = ctk.CTkOptionMenu(
+            source_frame,
+            variable=self.source_var,
+            values=list(DOWNLOAD_SOURCES.keys()),
+            command=self._on_source_change,
+            width=120,
+            height=28,
+            font=self.create_font(12, "normal", logger=self.fonts_logger),
+            fg_color=Colors.BUTTON,
+            button_color=Colors.BUTTON_HOVER,
+            button_hover_color=Colors.BUTTON_HOVER,
+            dropdown_fg_color=Colors.CARD_BACKGROUND,
+            dropdown_hover_color=Colors.BUTTON_HOVER
+        )
+        source_menu.pack(side="left")
         
         divider = ctk.CTkFrame(
             card_frame,
@@ -1208,7 +1264,6 @@ class MainWindowApp:
         )
         cache_btn.pack(side="left", padx=Dimensions.PADX_MEDIUM)
         
-        # 添加联系信息到主框架底部
         contact_label = ctk.CTkLabel(
             main_frame,
             text="作者：HelloGaoo & WHYOS | 用户需自觉遵守并履行协议。如果资源存在违规或侵犯了您的合法权益，请联系作者我们会及时删除。邮箱：gaoo1228@163.com",
@@ -1219,7 +1274,7 @@ class MainWindowApp:
         contact_label.pack(fill=ctk.X, pady=(Dimensions.PADY_SMALL, Dimensions.PADY_MEDIUM), padx=Dimensions.PADX_LARGE)
     
     def _create_software_checkboxes(self, parent):
-        """创建软件复选框 - 居中显示"""
+        """创建软件复选框列表"""
         center_container = ctk.CTkFrame(parent, fg_color="transparent")
         center_container.pack(fill="both", expand=True, anchor="center")
         
@@ -1257,130 +1312,98 @@ class MainWindowApp:
                     checkbox.pack(anchor="w", pady=(Dimensions.PADY_MEDIUM1, Dimensions.PADY_MEDIUM1), padx=Dimensions.PADX_SMALL, fill="x")
                     self.software_checkboxes[software] = checkbox
                     
-                    # 将希沃易启学和白板去除横幅的选项设置为不可选择
                     if software in ["希沃易启学[学生端]", "希沃易启学[教师端]", "白板去除横幅"]:
                         checkbox.configure(state="disabled")
                     
                     current_index += 1
     
     def _on_checkbox_change(self, software):
-        """处理复选框状态变化，实现互斥选择逻辑
-        
-        Args:
-            software: 变化的软件名称
-        """
-        # 希沃输入法提示逻辑
+        """处理软件复选框状态变化"""
         if software == "希沃输入法":
             if self.software_checkboxes[software].get() == 1:
-                # 显示弹窗提示
                 result = messagebox.askokcancel(
                     "SEEVVO全家桶一剑下崽弃",
                     "此输入法需要搭配希沃设备或者希沃键鼠使用"
                 )
                 if not result:
-                    # 用户取消，取消选择
                     self.software_checkboxes[software].deselect()
         
-        # 希沃电脑助手提示逻辑
         elif software == "希沃电脑助手":
             if self.software_checkboxes[software].get() == 1:
-                # 显示弹窗提示
                 result = messagebox.askokcancel(
                     "SEEVVO全家桶一剑下崽弃",
                     "此软件需要搭配希沃设备或者希沃键鼠使用，如果没有以上设备则需要账号授权"
                 )
                 if not result:
-                    # 用户取消，取消选择
                     self.software_checkboxes[software].deselect()
         
-        # PPT小工具和课堂助手同时选择提示逻辑
         elif software == "PPT小工具" or software == "希沃课堂助手":
             if self.software_checkboxes[software].get() == 1:
-                # 检查是否同时选择了另一个软件
                 if software == "PPT小工具":
                     other_software = "希沃课堂助手"
                 else:
                     other_software = "PPT小工具"
                 
                 if self.software_checkboxes[other_software].get() == 1:
-                    # 显示弹窗提示
                     result = messagebox.askokcancel(
                         "SEEVVO全家桶一剑下崽弃",
                         f"同时安装{software}和{other_software}会导致PPT工具重叠"
                     )
                     if not result:
-                        # 用户取消，取消选择
                         self.software_checkboxes[software].deselect()
         
-        # 课堂助手和希沃品课(教师端)同时选择提示逻辑
         elif software == "希沃课堂助手" or software == "希沃品课[教师端]":
             if self.software_checkboxes[software].get() == 1:
-                # 检查是否同时选择了另一个软件
                 if software == "希沃课堂助手":
                     other_software = "希沃品课[教师端]"
                 else:
                     other_software = "希沃课堂助手"
                 
                 if self.software_checkboxes[other_software].get() == 1:
-                    # 显示弹窗提示
                     result = messagebox.askokcancel(
                         "SEEVVO全家桶一剑下崽弃",
                         "希沃品课(教师端)安装后课堂助手的PPT小工具有概率无法启用"
                     )
                     if not result:
-                        # 用户取消，取消选择
                         self.software_checkboxes[software].deselect()
         
-        # 希沃品课提示逻辑
         if software == "希沃品课[小组端]":
             if self.software_checkboxes[software].get() == 1:
-                # 检查教师端是否已被选择
                 if self.software_checkboxes["希沃品课[教师端]"].get() == 1:
-                    # 显示弹窗提示
                     result = messagebox.askokcancel(
                         "SEEVVO全家桶一剑下崽弃",
                         "希沃品课[小组端]与希沃品课[教师端]同时安装会覆盖，是否继续选择？"
                     )
                     if not result:
-                        # 用户取消，取消选择
                         self.software_checkboxes[software].deselect()
         elif software == "希沃品课[教师端]":
             if self.software_checkboxes[software].get() == 1:
-                # 检查小组端是否已被选择
                 if self.software_checkboxes["希沃品课[小组端]"].get() == 1:
-                    # 显示弹窗提示
                     result = messagebox.askokcancel(
                         "SEEVVO全家桶一剑下崽弃",
                         "希沃品课[小组端]与希沃品课[教师端]同时安装会覆盖，是否继续选择？"
                     )
                     if not result:
-                        # 用户取消，取消选择
                         self.software_checkboxes[software].deselect()
         
-        # 希沃易启学互斥选择
         elif software == "希沃易启学[学生端]":
             if self.software_checkboxes[software].get() == 1:
-                # 选择了学生端，取消教师端
                 self.software_checkboxes["希沃易启学[教师端]"].deselect()
         elif software == "希沃易启学[教师端]":
             if self.software_checkboxes[software].get() == 1:
-                # 选择了教师端，取消学生端
                 self.software_checkboxes["希沃易启学[学生端]"].deselect()
         
-        # 更新全选状态
         selected_count = sum(1 for checkbox in self.software_checkboxes.values() if checkbox.get() == 1)
         total_count = len(self.software_checkboxes)
         self.is_all_selected = selected_count == total_count
         
-        # 更新全选按钮文本
         if self.is_all_selected:
             self.toggle_select_btn.configure(text="全不选")
         else:
             self.toggle_select_btn.configure(text="全选")
     
     def select_all(self):
-        """全选所有软件，但排除特定软件"""
-        # 需要排除的软件列表
+        """全选所有可选软件"""
         excluded_software = ["希沃易启学[学生端]", "希沃易启学[教师端]", "希沃输入法", "希沃电脑助手", "希沃课堂助手", "希沃品课[教师端]", "希沃品课[小组端]", "白板去除横幅"]
         
         for software, checkbox in self.software_checkboxes.items():
@@ -1389,8 +1412,7 @@ class MainWindowApp:
         self.is_all_selected = True
     
     def deselect_all(self):
-        """取消全选所有软件，但排除希沃易启学和白板去除横幅"""
-        # 需要排除的软件列表
+        """取消全选所有可选软件"""
         excluded_software = ["希沃易启学[学生端]", "希沃易启学[教师端]", "白板去除横幅"]
         
         for software, checkbox in self.software_checkboxes.items():
@@ -1399,7 +1421,7 @@ class MainWindowApp:
         self.is_all_selected = False
     
     def toggle_select_all(self):
-        """切换全选/全不选状态"""
+        """切换全选/取消全选状态"""
         if self.is_all_selected:
             self.deselect_all()
             self.toggle_select_btn.configure(text="全选")
@@ -1407,32 +1429,33 @@ class MainWindowApp:
             self.select_all()
             self.toggle_select_btn.configure(text="全不选")
 
+    def _on_source_change(self, choice):
+        """处理下载源切换事件"""
+        global current_source
+        if set_download_source(choice):
+            main_logger = get_logger("Main")
+            main_logger.info(f"下载源已切换为: {DOWNLOAD_SOURCES[choice]['name']}")
+
     def start_installation(self):
-        """开始安装"""
+        """开始安装所选软件"""
         main_logger = get_logger("Main")
-        # 获取选中的软件
         selected_software = [software for software, checkbox in self.software_checkboxes.items() if checkbox.get() == 1]
         
         if selected_software:
             main_logger.info(f"用户选择了 {len(selected_software)} 个软件进行安装: {', '.join(selected_software)}")
-            # 检查安装窗口是否已存在且未关闭
             if hasattr(self, 'install_window') and self.install_window is not None:
                 try:
-                    # 尝试更新窗口，验证窗口是否仍存在
                     main_logger.info("更新现有安装窗口的软件列表")
                     self.install_window.selected_software = selected_software
                     self.install_window._refresh_table()
                     self.install_window.root.focus_force()
                 except (AttributeError, TclError):
-                    # 窗口已关闭，创建新窗口
                     main_logger.info("现有安装窗口已关闭，创建新的安装窗口")
                     self.install_window = InstallationWindow(selected_software, self)
             else:
-                # 创建新的安装窗口
                 main_logger.info("创建新的安装窗口")
                 self.install_window = InstallationWindow(selected_software, self)
             
-            # 隐藏主窗口
             main_logger.info("隐藏主窗口")
             try:
                 if hasattr(self, 'root') and self.root.winfo_exists():
@@ -1447,10 +1470,8 @@ class MainWindowApp:
         main_logger = get_logger("Main")
         main_logger.info("用户打开更新窗口")
         
-        # 创建更新窗口
         self.update_window = UpdateWindow(self)
         
-        # 隐藏主窗口
         main_logger.info("隐藏主窗口")
         try:
             if hasattr(self, 'root') and self.root.winfo_exists():
@@ -1459,14 +1480,12 @@ class MainWindowApp:
             main_logger.warning("隐藏主窗口失败，可能窗口已被销毁")
 
     def open_cache_window(self):
-        """打开缓存器窗口，显示并处理主界面当前选中的软件"""
+        """打开缓存窗口"""
         main_logger = get_logger("Main")
-        # 获取选中的软件
         selected_software = [software for software, checkbox in self.software_checkboxes.items() if checkbox.get() == 1]
 
         if selected_software:
             main_logger.info(f"用户选择了 {len(selected_software)} 个软件进行缓存: {', '.join(selected_software)}")
-            # 检查缓存窗口是否已存在且未关闭
             if hasattr(self, 'cache_window') and self.cache_window is not None:
                 try:
                     main_logger.info("更新现有缓存窗口的软件列表")
@@ -1490,6 +1509,7 @@ class MainWindowApp:
             main_logger.info("用户尝试缓存，但未选择任何软件")
     
     def _check_network_availability(self):
+        """检查网络连接是否可用"""
         main_logger = get_logger("Main")
         try:
             dns_servers = [
@@ -1504,93 +1524,88 @@ class MainWindowApp:
                     socket.create_connection((server, port), timeout=3)
                     main_logger.info(f"网络连接可用（通过 {server}:{port}）")
                     return True
-                except Exception:
-                    main_logger.warning(f"连接到 {server}:{port} 失败: {e}")
-                    # 继续尝试下一个服务器
+                except Exception as err:
+                    main_logger.warning(f"连接到 {server}:{port} 失败: {err}")
             
             # 所有服务器都连接失败
             main_logger.warning("所有DNS服务器连接失败，网络连接不可用")
             return False
-        except Exception:
-            main_logger.warning(f"网络连接检查出错: {e}")
+        except Exception as err:
+            main_logger.warning(f"网络连接检查出错: {err}")
             return False
     
     def _check_update_status(self):
+        """检查是否有新版本可用"""
         main_logger = get_logger("Main")
-        try:
-            version_url = "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/Version.ini"
-            main_logger.info(f"静默检查更新: {version_url}")
-            
-            # 带重试的请求
-            max_retries = 1
-            retry_count = 0
-            while retry_count <= max_retries:
-                try:
-                    main_logger.info(f"请求 {version_url} (尝试 {retry_count+1}/{max_retries+1})")
-                    response = requests.get(version_url, timeout=10, verify=False)
+        github_path = "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/Version.ini"
+        main_logger.info("静默检查更新（并发请求三个下载源）")
+        
+        def fetch_version(source_key):
+            try:
+                prefix = DOWNLOAD_SOURCES[source_key]["prefix"]
+                url = f"{prefix}{github_path}"
+                response = requests.get(url, timeout=10, verify=False)
+                if response.status_code == 200:
+                    content = response.content.decode('utf-8').strip()
+                    if content:
+                        return (source_key, content.split('\n')[0].strip(), None)
+                return (source_key, None, f"状态码: {response.status_code}")
+            except Exception as err:
+                return (source_key, None, str(err))
+        
+        results = []
+        with concurrent_futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {executor.submit(fetch_version, key): key for key in DOWNLOAD_SOURCES.keys()}
+            for future in concurrent_futures.as_completed(futures):
+                source_key, version, error = future.result()
+                if version:
+                    main_logger.info(f"从 {DOWNLOAD_SOURCES[source_key]['name']} 获取到版本号: {version}")
+                    results.append((source_key, version))
+                    for f in futures:
+                        f.cancel()
                     break
-                except Exception:
-                    retry_count += 1
-                    if retry_count > max_retries:
-                        raise
-                    main_logger.warning(f"请求失败，正在重试: {e}")
-            if response.status_code == 200:
-                lines = response.content.decode('utf-8').strip().split('\n')
-                if len(lines) > 0:
-                    latest_version = lines[0].strip()
-                    main_logger.info(f"获取到最新版本号: {latest_version}")
-                    
-                    current_version = self.VERSION[1:] if self.VERSION.startswith("v") else self.VERSION
-                    latest_version_clean = latest_version[1:] if latest_version.startswith("v") else latest_version
-                    
-                    current_parts = list(map(int, current_version.split(".")))
-                    latest_parts = list(map(int, latest_version_clean.split(".")))
-                    
-                    if latest_parts > current_parts:
-                        main_logger.info("检测到新版本")
-                        return True
-                    else:
-                        main_logger.info("当前版本为最新")
-                        return False
-                else:
-                    main_logger.error("Version.ini文件为空")
-                    return False
-            else:
-                main_logger.error(f"获取最新版本号失败，状态码: {response.status_code}")
-                return False
-        except Exception:
-            main_logger.error(f"检查更新失败: {e}", exc_info=True)
+                elif error:
+                    main_logger.warning(f"从 {DOWNLOAD_SOURCES[source_key]['name']} 获取失败: {error}")
+        
+        if not results:
+            main_logger.error("所有下载源都无法获取版本信息")
+            return False
+        
+        _, latest_version = results[0]
+        current_version = self.VERSION[1:] if self.VERSION.startswith("v") else self.VERSION
+        latest_version_clean = latest_version[1:] if latest_version.startswith("v") else latest_version
+        
+        current_parts = list(map(int, current_version.split(".")))
+        latest_parts = list(map(int, latest_version_clean.split(".")))
+        
+        if latest_parts > current_parts:
+            main_logger.info("检测到新版本")
+            return True
+        else:
+            main_logger.info("当前版本为最新")
             return False
     
     def run(self):
-        """运行应用"""
+        """运行应用程序主循环"""
         main_logger = get_logger("Main")
         main_logger.info("应用程序开始运行")
-        main_logger.info(f"主窗口进入事件循环")
+        main_logger.info("主窗口进入事件循环")
         
         try:
             self.root.mainloop()
-        except Exception:
-            main_logger.critical(f"应用程序运行异常: {e}", exc_info=True)
+        except Exception as err:
+            main_logger.critical(f"应用程序运行异常: {err}", exc_info=True)
         finally:
             main_logger.info("主窗口事件循环结束")
             main_logger.info("应用程序退出")
 
 class UpdateWindow:
-    """更新窗口类"""
-    # 当前应用版本号
     VERSION = MainWindowApp.VERSION
     CURRENT_VERSION = VERSION
     def __init__(self, main_window=None):
-        """初始化更新窗口
-        
-        Args:
-            main_window: 主窗口实例，用于窗口关闭时通知
-        """
-        # 初始化日志记录器
         self.update_logger = get_logger("Update")
         self.update_logger.info("更新窗口初始化开始")
-        # 创建窗口
+        
         self.root = ctk.CTkToplevel()
         self.root.title(f"SEEVVO全家桶一剑下崽弃 {self.VERSION} - 软件更新 - 作者：HelloGaoo & WHYOS")
         self.root.geometry(f"{Dimensions.INSTALL_WINDOW_WIDTH}x{Dimensions.INSTALL_WINDOW_HEIGHT}")  # 设置初始尺寸
@@ -1598,62 +1613,45 @@ class UpdateWindow:
         self.root.resizable(True, True)  # 允许调整窗口大小
         self.update_logger.info(f"更新窗口创建完成，初始尺寸: {Dimensions.INSTALL_WINDOW_WIDTH}x{Dimensions.INSTALL_WINDOW_HEIGHT}")
         
-        # 设置窗口焦点
         self.root.focus_force()
-        
-        # 启用双缓冲，减少滑动撕裂
         self.root.attributes("-alpha", 1.0)
-        
-        # 优化窗口重绘性能
         self.root.update_idletasks()
         
-        # 绑定窗口关闭事件
         self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
         
-        # 设置窗口图标
         try:
             icon_path = os.path.join(BASE_DIR, "icon", "001.ico")
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
                 self.update_logger.info("更新窗口图标设置成功")
-        except Exception:
-            self.update_logger.error(f"设置更新窗口图标时出错: {e}")
+        except Exception as err:
+            self.update_logger.error(f"设置更新窗口图标时出错: {err}")
         
-        # 初始化字体创建函数引用
         self.fonts_logger = get_logger("Fonts")
         self.create_font = create_global_font
         
-        # 存储主窗口引用
         self._main_window = main_window
         
         # 初始化版本信息
         self.latest_version = ""
         self.changelogs = ""
         self.update_status = ""
-        self.is_checking_update = False  # 标记是否正在检查更新
+        self.is_checking_update = False
         
         self.update_logger.info("更新窗口初始化完成")
         
-        # 初始化线程池
         self.executor = None
         
-        # 创建界面组件
         self._create_all_widgets()
-        
-        # 开始检查更新
         self._check_for_updates()
     
     def _create_all_widgets(self):
-        """创建所有界面组件"""
-        # 主框架
         main_frame = ctk.CTkFrame(self.root, fg_color=Colors.BACKGROUND, corner_radius=0)
         main_frame.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
         
-        # 内容容器
         content_container = ctk.CTkFrame(main_frame, fg_color=Colors.BACKGROUND)
         content_container.pack(fill=ctk.BOTH, expand=True, padx=Dimensions.PADX_LARGE, pady=(Dimensions.PADY_XLARGE, Dimensions.PADY_SMALL))
         
-        # 卡片框架
         card_frame = ctk.CTkFrame(
             content_container,
             corner_radius=Dimensions.CORNER_RADIUS_LARGE,
@@ -1663,7 +1661,6 @@ class UpdateWindow:
         )
         card_frame.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
         
-        # 标题栏
         title_bar = ctk.CTkFrame(
             card_frame,
             fg_color=Colors.CARD_BACKGROUND,
@@ -1680,7 +1677,6 @@ class UpdateWindow:
         )
         title_label.pack(anchor="w")
         
-        # 分隔线
         divider = ctk.CTkFrame(
             card_frame,
             fg_color=Colors.SECTION_DIVIDER,
@@ -1689,7 +1685,6 @@ class UpdateWindow:
         )
         divider.pack(fill=ctk.X, padx=Dimensions.PADX_LARGE)
         
-        # 更新内容区域
         update_content_frame = ctk.CTkFrame(
             card_frame,
             fg_color=Colors.LIST_BACKGROUND,
@@ -1699,15 +1694,12 @@ class UpdateWindow:
         )
         update_content_frame.pack(fill=ctk.BOTH, expand=True, padx=Dimensions.PADX_LARGE, pady=Dimensions.PADY_LARGE)
         
-        # 版本信息框架
         version_frame = ctk.CTkFrame(update_content_frame, fg_color="transparent")
         version_frame.pack(fill=ctk.X, padx=Dimensions.PADX_LARGE, pady=(Dimensions.PADY_LARGE, Dimensions.PADY_MEDIUM))
         
-        # 版本信息水平布局
         version_horizontal_frame = ctk.CTkFrame(version_frame, fg_color="transparent")
         version_horizontal_frame.pack(fill=ctk.X, padx=0, pady=0)
         
-        # 当前版本标签
         VERSION_label = ctk.CTkLabel(
             version_horizontal_frame,
             text=f"当前版本: {self.VERSION}",
@@ -1716,7 +1708,6 @@ class UpdateWindow:
         )
         VERSION_label.pack(side="left", padx=Dimensions.PADX_MEDIUM, pady=Dimensions.PADY_SMALL)
         
-        # 最新版本标签
         self.latest_version_label = ctk.CTkLabel(
             version_horizontal_frame,
             text="最新版本: 获取中",
@@ -1725,7 +1716,6 @@ class UpdateWindow:
         )
         self.latest_version_label.pack(side="left", padx=Dimensions.PADX_MEDIUM, pady=Dimensions.PADY_SMALL)
         
-        # 更新状态标签
         self.update_status_label = ctk.CTkLabel(
             version_horizontal_frame,
             text="更新状态: 获取中",
@@ -1734,7 +1724,6 @@ class UpdateWindow:
         )
         self.update_status_label.pack(side="left", padx=Dimensions.PADX_MEDIUM, pady=Dimensions.PADY_SMALL)
         
-        # 更新日志标题
         changelog_title_label = ctk.CTkLabel(
             update_content_frame,
             text="更新日志:",
@@ -1743,7 +1732,6 @@ class UpdateWindow:
         )
         changelog_title_label.pack(anchor="w", padx=Dimensions.PADX_LARGE, pady=(Dimensions.PADY_LARGE, Dimensions.PADY_SMALL))
         
-        # 更新日志文本框
         self.changelog_text = ctk.CTkTextbox(
             update_content_frame,
             fg_color=Colors.BACKGROUND,
@@ -1758,7 +1746,6 @@ class UpdateWindow:
         self.changelog_text.insert("0.0", "正在获取更新日志")
         self.changelog_text.configure(state="disabled")
         
-        # 下载进度区域
         download_progress_frame = ctk.CTkFrame(
             card_frame,
             fg_color=Colors.CARD_BACKGROUND,
@@ -1766,11 +1753,9 @@ class UpdateWindow:
         )
         download_progress_frame.pack(fill=ctk.X, padx=Dimensions.PADX_LARGE, pady=(Dimensions.PADY_MEDIUM, Dimensions.PADY_SMALL))
         
-        # 进度信息框架（百分比和下载速度）- 放在进度条左上角
         progress_info_frame = ctk.CTkFrame(download_progress_frame, fg_color="transparent")
         progress_info_frame.pack(fill=ctk.X, padx=0, pady=(0, Dimensions.PADY_SMALL))
         
-        # 下载百分比标签
         self.download_percentage_label = ctk.CTkLabel(
             progress_info_frame,
             text="0.0%",
@@ -1779,7 +1764,6 @@ class UpdateWindow:
         )
         self.download_percentage_label.pack(side="left", padx=0)
         
-        # 下载速度标签
         self.download_speed_label = ctk.CTkLabel(
             progress_info_frame,
             text="0 B/s",
@@ -1788,7 +1772,6 @@ class UpdateWindow:
         )
         self.download_speed_label.pack(side="left", padx=(Dimensions.PADX_MEDIUM, 0))
         
-        # 进度条 - 蓝色
         self.download_progress_bar = ctk.CTkProgressBar(
             download_progress_frame,
             fg_color=Colors.SECTION_DIVIDER,
@@ -1800,7 +1783,6 @@ class UpdateWindow:
         self.download_progress_bar.pack(fill=ctk.X, pady=0)
         self.download_progress_bar.set(0)
         
-        # 下载状态标签
         self.download_status_label = ctk.CTkLabel(
             download_progress_frame,
             text="等待下载...",
@@ -1809,11 +1791,9 @@ class UpdateWindow:
         )
         self.download_status_label.pack(anchor="w", pady=(Dimensions.PADY_SMALL, 0))
         
-        # 底部按钮区域
         button_frame = ctk.CTkFrame(card_frame, fg_color=Colors.CARD_BACKGROUND, border_width=0)
         button_frame.pack(pady=(0, Dimensions.PADY_LARGE), fill=ctk.X, padx=Dimensions.PADX_LARGE)
         
-        # 更新按钮（占位）
         self.update_btn = ctk.CTkButton(
             button_frame,
             text="更新",
@@ -1825,11 +1805,10 @@ class UpdateWindow:
             corner_radius=Dimensions.CORNER_RADIUS_MEDIUM,
             font=self.create_font(14, "bold", logger=self.fonts_logger),
             command=self._on_update_click,
-            state=ctk.DISABLED  # 初始禁用
+            state=ctk.DISABLED
         )
         self.update_btn.pack(side="right", padx=Dimensions.PADX_MEDIUM)
         
-        # 添加联系信息到主框架底部
         contact_label = ctk.CTkLabel(
             main_frame,
             text="作者：HelloGaoo & WHYOS | 用户需自觉遵守并履行协议。如果资源存在违规或侵犯了您的合法权益，请联系作者我们会及时删除。邮箱：gaoo1228@163.com",
@@ -1849,7 +1828,7 @@ class UpdateWindow:
     
     def _fetch_update_info(self):
         try:
-            version_url = "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/Version.ini"
+            version_url = get_github_url("/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/Version.ini")
             self.update_logger.info(f"获取最新版本号和强制更新标志: {version_url}")
             
             # 带重试的请求
@@ -1860,7 +1839,7 @@ class UpdateWindow:
                     self.update_logger.info(f"请求 {version_url} (尝试 {retry_count+1}/{max_retries+1})")
                     response = requests.get(version_url, timeout=10, verify=False)
                     break
-                except Exception:
+                except Exception as e:
                     retry_count += 1
                     if retry_count > max_retries:
                         raise
@@ -1889,7 +1868,7 @@ class UpdateWindow:
                 self.force_update = False
             
             # 获取更新日志
-            changelog_url = "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/Changelogs.txt"
+            changelog_url = get_github_url("/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/Changelogs.txt")
             self.update_logger.info(f"获取更新日志: {changelog_url}")
             
             # 带重试的请求
@@ -1900,11 +1879,11 @@ class UpdateWindow:
                     self.update_logger.info(f"请求 {changelog_url} (尝试 {retry_count+1}/{max_retries+1})")
                     response = requests.get(changelog_url, timeout=10, verify=False)
                     break
-                except Exception:
+                except Exception as err:
                     retry_count += 1
                     if retry_count > max_retries:
                         raise
-                    self.update_logger.warning(f"请求失败，正在重试: {e}")
+                    self.update_logger.warning(f"请求失败，正在重试: {err}")
             if response.status_code == 200:
                 self.changelogs = response.text
                 self.update_logger.info(f"获取到更新日志")
@@ -1918,14 +1897,13 @@ class UpdateWindow:
             # 更新UI
             self.root.after(0, self._update_ui)
             
-        except Exception:
-            self.update_logger.error(f"获取更新信息失败: {e}", exc_info=True)
+        except Exception as err:
+            self.update_logger.error(f"获取更新信息失败: {err}", exc_info=True)
             self.latest_version = self.VERSION
             self.changelogs = "获取更新信息时出错"
             self.update_status = "检查失败"
             self.force_update = False
             
-            # 更新UI
             self.root.after(0, self._update_ui)
         finally:
             # 检查更新完成，重置标志
@@ -1933,7 +1911,6 @@ class UpdateWindow:
             self.update_logger.info("检查更新完成")
     
     def _compare_versions(self):
-        """比较版本号"""
         try:
             current_version = self.CURRENT_VERSION[1:] if self.CURRENT_VERSION.startswith("v") else self.CURRENT_VERSION
             latest_version = self.latest_version[1:] if self.latest_version.startswith("v") else self.latest_version
@@ -1947,17 +1924,15 @@ class UpdateWindow:
                 self.update_status = "最新"
             
             self.update_logger.info(f"版本比对结果: {self.update_status}")
-        except Exception:
-            self.update_logger.error(f"版本比对失败: {e}", exc_info=True)
+        except Exception as err:
+            self.update_logger.error(f"版本比对失败: {err}", exc_info=True)
             self.update_status = "比对失败"
     
     def _update_ui(self):
         """更新UI显示"""
         try:
-            # 更新最新版本标签
             self.latest_version_label.configure(text=f"最新版本: {self.latest_version}")
             
-            # 更新更新状态标签
             if self.update_status == "有新版本":
                 if self.force_update:
                     status_text = "有新版本（强制更新）"
@@ -1970,19 +1945,16 @@ class UpdateWindow:
                 status_color = Colors.TEXT
             self.update_status_label.configure(text=f"更新状态: {status_text}", text_color=status_color)
             
-            # 更新更新日志文本框
             self.changelog_text.configure(state="normal")
             self.changelog_text.delete("0.0", ctk.END)
             self.changelog_text.insert("0.0", self.changelogs)
             self.changelog_text.configure(state="disabled")
             
-            # 更新更新按钮状态
             if hasattr(self, 'update_btn'):
-                # 检测完成后启用按钮，让用户可以点击查看状态
                 self.update_btn.configure(state=ctk.NORMAL)
             
-        except Exception:
-            self.update_logger.error(f"更新UI失败: {e}", exc_info=True)
+        except Exception as err:
+            self.update_logger.error(f"更新UI失败: {err}", exc_info=True)
     
     def _on_update_click(self):
         if self.update_status == "最新" or self.update_status == "检查失败" or self.update_status == "比对失败":
@@ -2017,46 +1989,38 @@ class UpdateWindow:
     
     def _download_update(self):
         try:
-            download_url = "https://hk.gh-proxy.org/https://github.com/HelloGaoo/SeevvoDownloader/releases/download/v2.0.0/Update.7z"
+            download_url = get_github_url("/HelloGaoo/SeevvoDownloader/releases/download/v2.0.0/Update.7z")
             self.update_logger.info(f"开始下载更新文件: {download_url}")
             
-            # 更新UI状态
             self.root.after(0, lambda: self.download_status_label.configure(text="正在连接服务器..."))
             
-            # 发送HEAD请求获取文件大小
             try:
                 head_response = requests.head(download_url, timeout=10, verify=False, allow_redirects=True)
                 total_size = int(head_response.headers.get('content-length', 0))
                 self.update_logger.info(f"文件总大小: {total_size} 字节")
-            except Exception:
-                self.update_logger.warning(f"无法获取文件大小: {e}")
+            except Exception as err:
+                self.update_logger.warning(f"无法获取文件大小: {err}")
                 total_size = 0
             
-            # 开始下载
             response = requests.get(download_url, stream=True, timeout=30, verify=False)
             
             if response.status_code != 200:
                 raise Exception(f"下载失败，状态码: {response.status_code}")
             
-            # 如果没有从HEAD请求获取到大小，从GET响应中获取
             if total_size == 0:
                 total_size = int(response.headers.get('content-length', 0))
             
-            # 准备下载路径
             temp_dir = os.path.join(BASE_DIR, "Update")
             os.makedirs(temp_dir, exist_ok=True)
             temp_file = os.path.join(temp_dir, "Update.7z")
             
-            # 初始化下载进度变量
             downloaded_size = 0
             start_time = time.time()
             last_update_time = start_time
             last_downloaded_size = 0
             
-            # 更新UI状态
             self.root.after(0, lambda: self.download_status_label.configure(text="正在下载..."))
             
-            # 写入文件
             with open(temp_file, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if self._download_cancelled:
@@ -2067,52 +2031,41 @@ class UpdateWindow:
                         f.write(chunk)
                         downloaded_size += len(chunk)
                         
-                        # 计算下载速度和进度
                         current_time = time.time()
                         time_elapsed = current_time - last_update_time
                         
-                        # 每0.1秒更新一次UI
                         if time_elapsed >= 0.1:
-                            # 计算下载速度
                             speed = (downloaded_size - last_downloaded_size) / time_elapsed
                             
-                            # 计算进度百分比
                             if total_size > 0:
                                 percentage = (downloaded_size / total_size) * 100
                             else:
                                 percentage = 0
                             
-                            # 更新UI
                             self.root.after(0, lambda p=percentage, s=speed, d=downloaded_size, t=total_size: self._update_download_progress(p, s, d, t))
                             
                             last_update_time = current_time
                             last_downloaded_size = downloaded_size
             
-            # 下载完成
             self.update_logger.info("下载完成")
             
-            # 更新UI
             self.root.after(0, lambda: self._update_download_progress(100, 0, total_size, total_size))
             self.root.after(0, lambda: self.download_status_label.configure(text="下载完成，正在准备更新..."))
             
-            # 准备更新
             self._prepare_update(temp_file)
             
-        except Exception:
-            self.update_logger.error(f"下载更新失败: {e}", exc_info=True)
+        except Exception as err:
+            self.update_logger.error(f"下载更新失败: {err}", exc_info=True)
             self._is_downloading = False
-            self.root.after(0, lambda: self._on_download_error(str(e)))
+            self.root.after(0, lambda: self._on_download_error(str(err)))
     
     def _update_download_progress(self, percentage, speed, downloaded, total):
         """更新下载进度显示"""
         try:
-            # 更新进度条
             self.download_progress_bar.set(percentage / 100)
             
-            # 更新百分比标签
             self.download_percentage_label.configure(text=f"{percentage:.1f}%")
             
-            # 格式化下载速度
             if speed > 0:
                 if speed < 1024:
                     speed_text = f"{speed:.1f} B/s"
@@ -2122,7 +2075,6 @@ class UpdateWindow:
                     speed_text = f"{speed / (1024 * 1024):.1f} MB/s"
                 self.download_speed_label.configure(text=speed_text)
             
-            # 更新下载状态（显示已下载/总大小）
             def format_size(size):
                 if size < 1024:
                     return f"{size} B"
@@ -2137,8 +2089,8 @@ class UpdateWindow:
                 status_text = f"已下载: {format_size(downloaded)}"
             self.download_status_label.configure(text=status_text)
             
-        except Exception:
-            self.update_logger.error(f"更新下载进度失败: {e}")
+        except Exception as err:
+            self.update_logger.error(f"更新下载进度失败: {err}")
     
     def _prepare_update(self, downloaded_file):
         try:
@@ -2235,7 +2187,7 @@ exit
             self._is_downloading = False
             self.root.after(500, self._exit_program)
             
-        except Exception:
+        except Exception as e:
             self.update_logger.error(f"准备更新失败: {e}", exc_info=True)
             self._is_downloading = False
             self.root.after(0, lambda: messagebox.showerror("SEEVVO全家桶一剑下崽弃", f"准备更新失败: {e}"))
@@ -2288,18 +2240,10 @@ exit
             pass
 
 class InstallationWindow:
-    """安装页面窗口类"""
     def __init__(self, selected_software, main_window=None):
-        """初始化安装页面
-        
-        Args:
-            selected_software (list): 选中的软件列表
-            main_window: 主窗口实例，用于窗口关闭时通知
-        """
-        # 初始化日志记录器
         self.installer_logger = get_logger("Installer")
         self.installer_logger.info("安装窗口初始化开始")
-        # 创建窗口
+        
         self.root = ctk.CTkToplevel()
         self.root.title(f"SEEVVO全家桶一剑下崽弃 {MainWindowApp.VERSION} - 软件安装 - 作者：HelloGaoo & WHYOS")
         self.root.geometry(f"{Dimensions.INSTALL_WINDOW_WIDTH}x{Dimensions.INSTALL_WINDOW_HEIGHT}")  # 设置初始尺寸
@@ -2307,71 +2251,50 @@ class InstallationWindow:
         self.root.resizable(True, True)  # 允许调整窗口大小
         self.installer_logger.info(f"安装窗口创建完成，初始尺寸: {Dimensions.INSTALL_WINDOW_WIDTH}x{Dimensions.INSTALL_WINDOW_HEIGHT}")
         
-        # 将窗口置于顶层，始终保持在最上层
-
         self.root.focus_force()
-        
-        # 启用双缓冲，减少滑动撕裂
         self.root.attributes("-alpha", 1.0)
-        
-        # 优化窗口重绘性能
         self.root.update_idletasks()
         
-        # 绑定窗口关闭事件
         self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
         
-        # 设置窗口图标
         try:
             icon_path = os.path.join(BASE_DIR, "icon", "001.ico")
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
                 self.installer_logger.info("安装窗口图标设置成功")
-        except Exception:
-            self.installer_logger.error(f"设置安装窗口图标时出错: {e}")
+        except Exception as err:
+            self.installer_logger.error(f"设置安装窗口图标时出错: {err}")
         
-        # 初始化字体创建函数引用
         self.fonts_logger = get_logger("Fonts")
         self.create_font = create_global_font
         
-        # 存储主窗口引用
         self._main_window = main_window
         
-        # 存储选中的软件
         self.selected_software = selected_software
         self.installer_logger.info(f"安装窗口初始化完成，共 {len(selected_software)} 个软件待安装")
-        # 初始化标记：在检测缓存与远程大小期间为 True，期间不更新底部汇总状态
         self._initializing = True
         
-        # 初始化线程池
         self.executor = None
         
-        # 初始化表格相关属性
         self.table_frame = None
         self.scrollable_frame = None
         self.col_widths = None
         self.table_rows = {}
         
-        # 限速与更新节流（平衡实时性和性能）
         self.download_rate_limit = getattr(self, 'download_rate_limit', 0)
-        self.progress_update_interval = 0.5  # 平衡实时性和性能
+        self.progress_update_interval = 0.5
         
-        # 初始化汇总状态映射
         self._summary_state = {sw: 'not_started' for sw in self.selected_software}
         
-        # 创建界面组件
         self._create_all_widgets()
         
     def _create_all_widgets(self):
-        """创建所有界面组件"""
-        # 主框架
         main_frame = ctk.CTkFrame(self.root, fg_color=Colors.BACKGROUND, corner_radius=0)
         main_frame.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
         
-        # 内容容器
         content_container = ctk.CTkFrame(main_frame, fg_color=Colors.BACKGROUND)
         content_container.pack(fill=ctk.BOTH, expand=True, padx=Dimensions.PADX_LARGE, pady=(Dimensions.PADY_XLARGE, Dimensions.PADY_SMALL))
         
-        # 卡片框架
         card_frame = ctk.CTkFrame(
             content_container,
             corner_radius=Dimensions.CORNER_RADIUS_LARGE,
@@ -2381,7 +2304,6 @@ class InstallationWindow:
         )
         card_frame.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
         
-        # 标题栏
         title_bar = ctk.CTkFrame(
             card_frame,
             fg_color=Colors.CARD_BACKGROUND,
@@ -2398,7 +2320,6 @@ class InstallationWindow:
         )
         title_label.pack(anchor="w")
         
-        # 分隔线
         divider = ctk.CTkFrame(
             card_frame,
             fg_color=Colors.SECTION_DIVIDER,
@@ -2407,7 +2328,6 @@ class InstallationWindow:
         )
         divider.pack(fill=ctk.X, padx=Dimensions.PADX_LARGE)
         
-        # 表格容器
         table_container = ctk.CTkFrame(
             card_frame,
             fg_color=Colors.CARD_BACKGROUND,
@@ -2416,7 +2336,6 @@ class InstallationWindow:
         )
         table_container.pack(fill=ctk.BOTH, expand=True, padx=Dimensions.PADX_LARGE, pady=Dimensions.PADY_LARGE)
 
-        # 汇总状态显示（底部）：初始为未开始（先创建，保证后续刷新有目标控件）
         self.summary_frame = ctk.CTkFrame(card_frame, fg_color=Colors.CARD_BACKGROUND, border_width=0)
         self.summary_frame.pack(fill=ctk.X, padx=Dimensions.PADX_LARGE, pady=(0, Dimensions.PADY_SMALL))
         self.summary_status_label = ctk.CTkLabel(
@@ -2428,7 +2347,6 @@ class InstallationWindow:
         )
         self.summary_status_label.pack(anchor="w", padx=Dimensions.PADX_MEDIUM, pady=(Dimensions.PADY_SMALL, 0))
 
-        # 确保内部汇总状态初始正确
         try:
             self._summary_state = {sw: 'not_started' for sw in self.selected_software}
             try:
@@ -2438,10 +2356,8 @@ class InstallationWindow:
         except Exception:
             pass
 
-        # 创建表格（在汇总标签创建后调用，避免后台检测在标签不存在时写入错误状态）
         self._create_table(table_container)
 
-        # 底部按钮栏
         button_frame = ctk.CTkFrame(card_frame, fg_color=Colors.CARD_BACKGROUND, border_width=0)
         button_frame.pack(pady=(0, Dimensions.PADY_LARGE), fill=ctk.X, padx=Dimensions.PADX_LARGE)
         
@@ -2474,16 +2390,9 @@ class InstallationWindow:
         contact_label.pack(fill=ctk.X, pady=(Dimensions.PADY_SMALL, Dimensions.PADY_MEDIUM), padx=Dimensions.PADX_LARGE)
     
     def _create_table(self, parent):
-        """创建安装进度表格
-        
-        Args:
-            parent: 父容器
-        """
-        # 创建表格框架
         self.table_frame = ctk.CTkFrame(parent, fg_color=Colors.CARD_BACKGROUND, border_width=0)
         self.table_frame.pack(fill=ctk.BOTH, expand=True)
         
-        # 创建滚动区域
         self.scrollable_frame = ctk.CTkScrollableFrame(
             self.table_frame,
             fg_color="transparent",
@@ -2492,7 +2401,6 @@ class InstallationWindow:
         )
         self.scrollable_frame.pack(fill=ctk.BOTH, expand=True)
         
-        # 优化滚动性能，减少撕裂
         self.scrollable_frame.configure(corner_radius=0)
         
         # 表格列宽配置
@@ -2504,11 +2412,9 @@ class InstallationWindow:
             "总进度": 130
         }
         
-        # 创建表头
         header_frame = ctk.CTkFrame(self.scrollable_frame, fg_color=Colors.TABLE_HEADER, border_width=0)
         header_frame.pack(fill=ctk.X, padx=Dimensions.PADY_SMALL, pady=Dimensions.PADY_SMALL)
         
-        # 表头标签
         headers = ["软件名称", "安装状态", "缓存状态", "下载速度", "总进度"]
         for i, header in enumerate(headers):
             label = ctk.CTkLabel(
@@ -2521,23 +2427,18 @@ class InstallationWindow:
             )
             label.grid(row=0, column=i, padx=Dimensions.PADX_LARGE, pady=Dimensions.PADY_MEDIUM, sticky="w")
         
-        # 创建分隔线
         header_divider = ctk.CTkFrame(self.scrollable_frame, fg_color=Colors.BORDER, height=1)
         header_divider.pack(fill=ctk.X, padx=Dimensions.PADY_SMALL)
         
-        # 创建表格行
         self._refresh_table()
     
     def _refresh_table(self):
-        """刷新表格内容"""
-        # 清除现有的表格行（保留表头和分隔线）
         if hasattr(self, 'scrollable_frame'):
             children = self.scrollable_frame.winfo_children()
             for widget in children:
                 if isinstance(widget, ctk.CTkFrame) and widget not in (children[0], children[1]):
                     widget.destroy()
 
-        # 创建新的表格行
         self.table_rows = {}
         for idx, software in enumerate(self.selected_software):
             self._create_table_row(self.scrollable_frame, software, idx + 1, self.col_widths)
@@ -2555,7 +2456,6 @@ class InstallationWindow:
                         cache_status = self._check_cache_status(software)
                     except Exception:
                         cache_status = "未缓存"
-                    # 在主线程更新该行的缓存状态和远程大小
                     try:
                         self.root.after(0, lambda s=software, cs=cache_status: self._update_cache_status(s, cs))
                     except Exception:
@@ -2573,7 +2473,6 @@ class InstallationWindow:
                         loading.close()
                     except Exception:
                         pass
-                    # 初始检测完成：取消初始化标记，并重置汇总为未开始（避免在打开窗口时显示“已结束”）
                     try:
                         self._initializing = False
                         try:
@@ -2592,46 +2491,26 @@ class InstallationWindow:
         self.root.after(200, monitor)
     
     def _update_cache_status(self, software_name, cache_status):
-        """更新缓存状态
-        
-        Args:
-            software_name: 软件名称
-            cache_status: 缓存状态
-        """
         def update_ui():
             if software_name in self.table_rows:
                 self.table_rows[software_name]["cache_label"].configure(text=cache_status)
-                # 当缓存状态为已缓存时，设置下载速度为无需下载
                 if cache_status == "已缓存":
                     self.table_rows[software_name]["speed_label"].configure(text="已缓存")
         
-        # 使用after方法在主线程中更新UI
         self.root.after(0, update_ui)
     
     def _update_status(self, software_name, status):
-        """更新安装状态
-        
-        Args:
-            software_name: 软件名称
-            status: 安装状态
-        """
         def update_ui():
             if software_name in self.table_rows:
                 self.table_rows[software_name]["status_label"].configure(text=status)
-                # 根据状态自动更新进度
                 if status == "下载完成":
-                    # 下载完成，设置进度为50%
                     self.table_rows[software_name]["progress_text"].configure(text="50%")
                 elif status == "解压完成":
-                    # 解压完成，设置进度为70%
                     self.table_rows[software_name]["progress_text"].configure(text="70%")
                 elif status == "已安装" or status == "安装完成":
-                    # 安装完成，设置进度为100%
                     self.table_rows[software_name]["progress_text"].configure(text="100%")
                 elif status in ("安装失败", "下载失败", "解压失败"):
-                    # 失败状态，设置进度为0%
                     self.table_rows[software_name]["progress_text"].configure(text="0%")
-            # 更新汇总状态
             try:
                 if hasattr(self, '_update_summary_state'):
                     try:
@@ -2641,43 +2520,26 @@ class InstallationWindow:
             except Exception:
                 pass
         
-        # 使用after方法在主线程中更新UI
         self.root.after(0, update_ui)
     
     def _update_progress(self, software_name, progress):
-        """更新总进度
-        
-        Args:
-            software_name: 软件名称
-            progress: 总进度百分比
-        """
         def update_ui():
             if software_name in self.table_rows:
                 self.table_rows[software_name]["progress_text"].configure(text=f"{progress}%")
         
-        # 使用after方法在主线程中更新UI
         self.root.after(0, update_ui)
     
     def _update_speed(self, software_name, speed):
-        """更新下载速度
-        
-        Args:
-            software_name: 软件名称
-            speed: 下载速度
-        """
         def update_ui():
             if software_name in self.table_rows:
                 self.table_rows[software_name]["speed_label"].configure(text=speed)
         
-        # 使用after方法在主线程中更新UI
         self.root.after(0, update_ui)
     
     def _update_summary_state(self, software, status):
-        """内部：将表格状态映射到 summary_state 并刷新底部汇总标签。"""
         try:
             if not hasattr(self, '_summary_state'):
                 self._summary_state = {sw: 'not_started' for sw in self.selected_software}
-            # 规范化状态
             norm = None
             if status in ("已安装", "安装完成"):
                 norm = 'success'
@@ -2690,10 +2552,8 @@ class InstallationWindow:
 
             prev = self._summary_state.get(software)
             if prev == norm:
-                # 无变更
                 return
             self._summary_state[software] = norm
-            # 刷新汇总显示
             try:
                 self._recalculate_summary_label()
             except Exception:
@@ -2707,7 +2567,6 @@ class InstallationWindow:
             failed = sum(1 for v in self._summary_state.values() if v == 'failed')
             in_progress = any(v in ('installing', 'downloading') for v in self._summary_state.values())
 
-            # 确定状态文本
             if in_progress:
                 state_text = '进行中'
             elif success + failed == 0:
@@ -2724,13 +2583,6 @@ class InstallationWindow:
             pass
     
     def _download_file(self, software_name, cache_file, download_location="cache"):
-        """下载文件
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-            download_location: 下载路径位置，可选值为 "cache" 或 "Temporary"
-        """
         # 跳过某些已知无法下载的文件
         skip_software = []
         if software_name in skip_software:
@@ -2780,7 +2632,7 @@ class InstallationWindow:
         while retry_count < max_retries:
             try:
                 # 发送请求
-                url = cache_file["url"]
+                url = get_download_url(cache_file)
                 self.installer_logger.info(f"{software_name}: 发送下载请求到: {url} (重试次数: {retry_count + 1}/{max_retries})")
                 
                 # 使用Session保持会话
@@ -2912,7 +2764,7 @@ class InstallationWindow:
         # 确保目标目录存在
         try:
             os.makedirs(output_dir, exist_ok=True)
-        except Exception:
+        except Exception as e:
             self.installer_logger.error(f"{software_name}: 无法创建输出目录 {output_dir}: {e}")
             self._update_status(software_name, "解压失败")
             raise
@@ -2955,7 +2807,7 @@ class InstallationWindow:
                 self.installer_logger.error(f"{software_name}: 7z 解压失败: {stderr_snippet}")
                 self._update_status(software_name, "解压失败")
                 raise RuntimeError(f"{software_name}: 7z 解压失败: {stderr_snippet}") from e
-            except Exception:
+            except Exception as e:
                 self.installer_logger.error(f"{software_name}: 使用7z解压时出现异常: {e}")
                 self._update_status(software_name, "解压失败")
                 raise
@@ -2969,7 +2821,7 @@ class InstallationWindow:
                 self.installer_logger.info(f"{software_name}: 使用zipfile解压完成")
                 self._update_progress(software_name, 70)
                 return
-            except Exception:
+            except Exception as e:
                 self.installer_logger.error(f"{software_name}: 使用zipfile解压失败: {e}")
                 self._update_status(software_name, "解压失败")
                 raise
@@ -2982,7 +2834,7 @@ class InstallationWindow:
                 # 解压完成，设置进度为70%
                 self._update_progress(software_name, 70)
                 return
-            except Exception:
+            except Exception as e:
                 self.installer_logger.error(f"{software_name}: py7zr 解压失败: {e}")
                 self._update_status(software_name, "解压失败")
                 raise
@@ -3095,16 +2947,7 @@ class InstallationWindow:
         }
     
     def _check_cache_status(self, software_name):
-        """检查软件的缓存状态
-        
-        Args:
-            software_name: 软件名称
-            
-        Returns:
-            str: 缓存状态，"已缓存"或"未缓存"
-        """
         cache_logger = get_logger("Cache")
-        # 查找对应的缓存文件信息（使用精确匹配）
         cache_file = next((item for item in CACHE_FILES if software_name in item["filename"] and 
                           (item["filename"].endswith(".exe") or item["filename"].endswith(".7z"))), None)
         
@@ -3112,20 +2955,16 @@ class InstallationWindow:
             cache_logger.warning(f"{software_name}: 未找到缓存文件信息")
             return "未缓存"
         
-        # 检查cache目录
         filename = cache_file["filename"]
         cache_path = os.path.join(CACHE_DIR, filename)
         
-        # 检查cache目录
         if not os.path.exists(cache_path):
             cache_logger.info(f"{software_name}: cache目录文件不存在: {cache_path}")
             return "未缓存"
         
-        # 使用cache路径
         local_path = cache_path
         
         try:
-            # 获取本地文件大小
             local_size = os.path.getsize(local_path)
             
             def calculate_file_hash(file_path):
@@ -3138,8 +2977,7 @@ class InstallationWindow:
             local_hash = calculate_file_hash(local_path)
             cache_logger.info(f"{software_name}: 本地文件哈希值: {local_hash}")
             
-            # 获取服务器文件大小
-            url = cache_file["url"]
+            url = get_download_url(cache_file)
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
@@ -3151,41 +2989,32 @@ class InstallationWindow:
                 server_size = int(response.headers["content-length"])
                 cache_logger.info(f"{software_name}: 服务器文件大小: {server_size} bytes")
                 
-                # 比较大小
                 if local_size == server_size:
                     cache_logger.info(f"{software_name}: cache文件大小: {local_size}, 服务器响应状态码: 200, 服务器文件大小: {server_size}, 大小一致，返回已缓存")
                     return "已缓存"
                 else:
-                    # 大小不一致，返回未缓存
                     cache_logger.info(f"{software_name}: cache文件大小: {local_size}, 服务器响应状态码: 200, 服务器文件大小: {server_size}, 大小不一致，返回未缓存")
                     return "未缓存"
             else:
                 cache_logger.warning(f"{software_name}: 服务器响应状态码: {response.status_code}, 服务器响应没有content-length")
                 return "未缓存"
-        except requests.exceptions.RequestException as e:
-            # 网络请求出错，返回未缓存
-            cache_logger.error(f"{software_name}: 网络请求异常: {e}", exc_info=True)
+        except requests.exceptions.RequestException as err:
+            cache_logger.error(f"{software_name}: 网络请求异常: {err}", exc_info=True)
             return "未缓存"
-        except OSError as e:
-            # 文件操作出错，返回未缓存
-            cache_logger.error(f"{software_name}: 文件操作异常: {e}", exc_info=True)
+        except OSError as err:
+            cache_logger.error(f"{software_name}: 文件操作异常: {err}", exc_info=True)
             return "未缓存"
-        except Exception:
-            # 其他异常，返回未缓存
-            cache_logger.error(f"{software_name}: 异常: {e}", exc_info=True)
+        except Exception as err:
+            cache_logger.error(f"{software_name}: 异常: {err}", exc_info=True)
             return "未缓存"
     
     def start_installation_process(self):
-        """开始安装过程"""
         self.installer_logger.info(f"开始安装过程，共 {len(self.selected_software)} 个软件待安装")
         
-        # 禁用开始按钮，防止重复点击
         self.start_btn.configure(state="disabled")
         
-        # 禁用窗口关闭按钮
         self.root.protocol("WM_DELETE_WINDOW", lambda: None)
         
-        # 更新汇总状态为 安装中
         try:
             if hasattr(self, 'summary_status_label') and getattr(self.summary_status_label, 'winfo_exists', lambda: False)():
                 try:
@@ -3194,22 +3023,17 @@ class InstallationWindow:
                     pass
         except Exception:
             pass
-        # 重置内部统计状态
         try:
             self._summary_state = {sw: 'not_started' for sw in self.selected_software}
-            # 立即标记为安装中状态
             for sw in list(self._summary_state.keys()):
                 self._summary_state[sw] = 'installing'
-                # 检查缓存状态，如果已缓存则设置进度为50%
                 row = self.table_rows.get(sw)
                 if row:
                     cache_label = row.get("cache_label")
                     if cache_label and getattr(cache_label, "winfo_exists", lambda: False)():
                         cache_status = cache_label.cget("text")
                         if cache_status == "已缓存":
-                            # 已缓存，设置进度为50%
                             self.root.after(0, lambda s=sw: self._update_progress(s, 50))
-            # 刷新汇总显示
             try:
                 self._recalculate_summary_label()
             except Exception:
@@ -3311,7 +3135,7 @@ class InstallationWindow:
                                     self._update_status(dep, "安装失败")
                                 except Exception:
                                     pass
-                except Exception:
+                except Exception as e:
                     # 主依赖失败，标记依赖项为安装失败（依赖未满足）
                     self.installer_logger.error(f"主依赖 {main_dependency} 安装失败，依赖任务将被标记为安装失败: {e}")
                     for dep in dependent_names:
@@ -3560,29 +3384,19 @@ class InstallationWindow:
             if install_func is not None:
                 install_func(software_name, cache_file)
             else:
-                # 如果没有专门的安装函数，尝试默认安装方式
                 self.installer_logger.info(f"{software_name}: 使用默认安装方式")
                 installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
                 self.silent_installation(software_name, installer_path)
                 self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
-            # 所有文件安装完成后都设置为"已安装"
             self._update_status(software_name, "已安装")
-            # 安装完成，设置进度为100%
             self._update_progress(software_name, 100)
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装过程中出错 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装过程中出错 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
-            # 安装失败，设置进度为0%
             self._update_progress(software_name, 0)
     
     def _cleanup_temp_files(self, temp_dir, filename):
-        """清理临时文件
-        
-        Args:
-            temp_dir: 临时目录路径
-            filename: 要清理的文件名
-        """
         max_retries = 3
         retry_count = 0
         temp_path = os.path.join(temp_dir, filename)
@@ -3595,21 +3409,15 @@ class InstallationWindow:
                     break
                 else:
                     break
-            except Exception:
+            except Exception as err:
                 retry_count += 1
                 if retry_count < max_retries:
-                    self.installer_logger.warning(f"清理临时文件失败，将重试 ({retry_count}/{max_retries}) - {e}")
-                    time.sleep(2)  # 等待2秒后重试
+                    self.installer_logger.warning(f"清理临时文件失败，将重试 ({retry_count}/{max_retries}) - {err}")
+                    time.sleep(2)
                 else:
-                    self.installer_logger.warning(f"清理临时文件失败: {e}")
+                    self.installer_logger.warning(f"清理临时文件失败: {err}")
     
     def _kill_process(self, software_name, process_name):
-        """终止指定进程
-        
-        Args:
-            software_name: 软件名称
-            process_name: 进程名称
-        """
         self.installer_logger.info(f"{software_name}: 终止进程 {process_name}")
         try:
             subprocess.run(["taskkill", "/f", "/im", process_name], check=True, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -3620,23 +3428,11 @@ class InstallationWindow:
             return False
     
     def _wait_for_process(self, software_name, process_name, timeout=30, check_interval=1):
-        """等待进程出现，超时返回 False
-        
-        Args:
-            software_name: 软件名称，用于日志记录
-            process_name: 要等待的进程名
-            timeout: 超时时间（秒）
-            check_interval: 检查间隔（秒）
-        
-        Returns:
-            bool: 进程是否在超时内出现
-        """
         self.installer_logger.info(f"{software_name}: 等待进程 {process_name} 出现，超时 {timeout} 秒")
         start_time = time.time()
         
         while time.time() - start_time < timeout:
             try:
-                # 使用 tasklist 命令检查进程是否存在
                 result = subprocess.run(
                     ["tasklist", "/FI", f"IMAGENAME eq {process_name}", "/NH"],
                     capture_output=True, text=True, shell=False
@@ -3644,8 +3440,8 @@ class InstallationWindow:
                 if process_name in result.stdout:
                     self.installer_logger.info(f"{software_name}: 进程 {process_name} 已出现")
                     return True
-            except Exception:
-                self.installer_logger.warning(f"{software_name}: 检查进程 {process_name} 时出错 - {e}")
+            except Exception as err:
+                self.installer_logger.warning(f"{software_name}: 检查进程 {process_name} 时出错 - {err}")
             
             time.sleep(check_interval)
         
@@ -3653,17 +3449,6 @@ class InstallationWindow:
         return False
     
     def _wait_for_process_exit(self, software_name, process, timeout=60, check_interval=2):
-        """等待进程退出，超时返回 False
-        
-        Args:
-            software_name: 软件名称，用于日志记录
-            process: subprocess.Popen 对象
-            timeout: 超时时间（秒）
-            check_interval: 检查间隔（秒）
-        
-        Returns:
-            bool: 进程是否在超时内退出
-        """
         self.installer_logger.info(f"{software_name}: 等待进程退出，超时 {timeout} 秒")
         start_time = time.time()
         
@@ -3677,17 +3462,6 @@ class InstallationWindow:
         return False
     
     def _wait_for_condition(self, software_name, condition_func, timeout=30, check_interval=1):
-        """等待条件满足，超时返回 False
-        
-        Args:
-            software_name: 软件名称，用于日志记录
-            condition_func: 条件函数，返回 bool
-            timeout: 超时时间（秒）
-            check_interval: 检查间隔（秒）
-        
-        Returns:
-            bool: 条件是否在超时内满足
-        """
         self.installer_logger.info(f"{software_name}: 等待条件满足，超时 {timeout} 秒")
         start_time = time.time()
         
@@ -3696,8 +3470,8 @@ class InstallationWindow:
                 if condition_func():
                     self.installer_logger.info(f"{software_name}: 条件已满足")
                     return True
-            except Exception:
-                self.installer_logger.warning(f"{software_name}: 检查条件时出错 - {e}")
+            except Exception as err:
+                self.installer_logger.warning(f"{software_name}: 检查条件时出错 - {err}")
             
             time.sleep(check_interval)
         
@@ -3706,120 +3480,71 @@ class InstallationWindow:
 
     # 剪辑师安装函数
     def _install_剪辑师(self, software_name, cache_file):
-        """安装剪辑师 01
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
     # 轻录播安装函数
     def _install_轻录播(self, software_name, cache_file):
-        """安装轻录播 02
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 知识胶囊安装函数
     def _install_知识胶囊(self, software_name, cache_file):
-        """安装知识胶囊 03
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 掌上看班安装函数
     def _install_掌上看班(self, software_name, cache_file):
-        """安装掌上看班 04
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 激活工具安装函数
     def _install_激活工具(self, software_name, cache_file):
-        """安装激活工具 05
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
             output_dir = r"C:\Program Files (x86)\Seewo"
             self._decompress_7Z(software_name, installer_path, output_dir)
             
-            # 拷贝快捷方式到C:\Users\Public\Desktop
             source_shortcut = os.path.join(output_dir, "激活工具-WHYOS-Gaoo", "激活工具.lnk")
             dest_shortcut = os.path.join(r"C:\Users\Public\Desktop", "激活工具.lnk")
             
@@ -3830,25 +3555,16 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     # 希沃壁纸安装函数
     def _install_希沃壁纸(self, software_name, cache_file):
-        """安装希沃壁纸 06
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             # 明确更新状态为下载中
             self._update_status(software_name, "下载中")
@@ -3884,10 +3600,9 @@ class InstallationWindow:
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     # 希沃管家安装函数
@@ -3899,19 +3614,16 @@ class InstallationWindow:
             cache_file: 缓存文件信息
         """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
@@ -3924,7 +3636,6 @@ class InstallationWindow:
             cache_file: 缓存文件信息
         """
         try:
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
@@ -3961,8 +3672,8 @@ class InstallationWindow:
                     self.installer_logger.info(f"{software_name}: 复制main.js到 {main_js_dest}")
                     shutil.copy2(main_js_source, main_js_dest)
                     self.installer_logger.info(f"{software_name}: main.js复制完成")
-                except Exception:
-                    self.installer_logger.warning(f"{software_name}: 复制main.js失败 - {str(e)}")
+                except Exception as err:
+                    self.installer_logger.warning(f"{software_name}: 复制main.js失败 - {str(err)}")
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到main.js文件: {main_js_source}")
             
@@ -3974,8 +3685,8 @@ class InstallationWindow:
                     self.installer_logger.info(f"{software_name}: 复制快捷方式到桌面")
                     shutil.copy2(shortcut_source, shortcut_dest)
                     self.installer_logger.info(f"{software_name}: 快捷方式已复制到桌面")
-                except Exception:
-                    self.installer_logger.warning(f"{software_name}: 复制快捷方式失败 - {str(e)}")
+                except Exception as err:
+                    self.installer_logger.warning(f"{software_name}: 复制快捷方式失败 - {str(err)}")
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {shortcut_source}")
             
@@ -3985,8 +3696,8 @@ class InstallationWindow:
                 subprocess.run(["setx", "/M", "MAUMainVersion", "6"], 
                               check=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 self.installer_logger.info(f"{software_name}: 系统环境变量设置成功")
-            except subprocess.CalledProcessError as e:
-                self.installer_logger.warning(f"{software_name}: 设置系统环境变量失败 - {str(e)}")
+            except subprocess.CalledProcessError as err:
+                self.installer_logger.warning(f"{software_name}: 设置系统环境变量失败 - {str(err)}")
             
             # 删除临时文件
             self.installer_logger.info(f"{software_name}: 清理临时文件")
@@ -3995,15 +3706,15 @@ class InstallationWindow:
             try:
                 os.remove(os.path.join(TEMP_DIR, "希沃桌面.lnk"))
                 self.installer_logger.info(f"{software_name}: 删除临时文件: 希沃桌面.lnk")
-            except Exception:
-                self.installer_logger.warning(f"{software_name}: 删除希沃桌面.lnk失败 - {str(e)}")
+            except Exception as err:
+                self.installer_logger.warning(f"{software_name}: 删除希沃桌面.lnk失败 - {str(err)}")
             
             # 删除main.js
             try:
                 os.remove(os.path.join(TEMP_DIR, "main.js"))
                 self.installer_logger.info(f"{software_name}: 删除临时文件: main.js")
-            except Exception:
-                self.installer_logger.warning(f"{software_name}: 删除main.js失败 - {str(e)}")
+            except Exception as err:
+                self.installer_logger.warning(f"{software_name}: 删除main.js失败 - {str(err)}")
             
             # 清理下载的安装包
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
@@ -4011,71 +3722,46 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃快传安装函数
     def _install_希沃快传(self, software_name, cache_file):
-        """安装希沃快传 09
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃集控安装函数
     def _install_希沃集控(self, software_name, cache_file):
-        """安装希沃集控 10
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃截图安装函数
     def _install_希沃截图(self, software_name, cache_file):
-        """安装希沃截图 11
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
             # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
@@ -4091,26 +3777,18 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃批注安装函数
     def _install_希沃批注(self, software_name, cache_file):
-        """安装希沃批注 12
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
             # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
@@ -4126,26 +3804,18 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃计时器安装函数
     def _install_希沃计时器(self, software_name, cache_file):
-        """安装希沃计时器 13
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
             # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
@@ -4161,26 +3831,18 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃放大镜安装函数
     def _install_希沃放大镜(self, software_name, cache_file):
-        """安装希沃放大镜 14
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
             # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
@@ -4196,26 +3858,18 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃浏览器安装函数
     def _install_希沃浏览器(self, software_name, cache_file):
-        """安装希沃浏览器 15
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             download_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
             # 调用解压参数解压到C:\Program Files (x86)\Seewo
@@ -4233,213 +3887,140 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到源快捷方式文件: {source_lnk}")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃智能笔安装函数
     def _install_希沃智能笔(self, software_name, cache_file):
-        """安装希沃智能笔 16
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 反馈器助手安装函数
     def _install_反馈器助手(self, software_name, cache_file):
-        """安装反馈器助手 17
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃易课堂安装函数
     def _install_希沃易课堂(self, software_name, cache_file):
-        """安装希沃易课堂 18
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃输入法安装函数
     def _install_希沃输入法(self, software_name, cache_file):
-        """安装希沃输入法 19
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # PPT小工具安装函数
     def _install_PPT小工具(self, software_name, cache_file):
-        """安装PPT小工具 20
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃轻白板安装函数
     def _install_希沃轻白板(self, software_name, cache_file):
-        """安装希沃轻白板 21
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃白板5安装函数
     def _install_希沃白板5(self, software_name, cache_file):
-        """安装希沃白板5 22
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃白板3安装函数
     def _install_希沃白板3(self, software_name, cache_file):
-        """安装希沃白板3 23
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
@@ -4474,23 +4055,16 @@ class InstallationWindow:
             
             self._update_status(software_name, "安装完成")
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 白板去除横幅安装函数
     def _install_白板去除横幅(self, software_name, cache_file):
-        """安装白板去除横幅 25
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
             self.installer_logger.info(f"{software_name}: 请你确保已安装希沃白板 5，某些白板可能应用不成功")
             
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
@@ -4550,171 +4124,110 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 班级优化大师安装函数
     def _install_班级优化大师(self, software_name, cache_file):
-        """安装班级优化大师 26
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃课堂助手安装函数
     def _install_希沃课堂助手(self, software_name, cache_file):
-        """安装希沃课堂助手 27
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃电脑助手安装函数
     def _install_希沃电脑助手(self, software_name, cache_file):
-        """安装希沃电脑助手 28
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃导播助手安装函数
     def _install_希沃导播助手(self, software_name, cache_file):
-        """安装希沃导播助手 29
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃视频展台安装函数
     def _install_希沃视频展台(self, software_name, cache_file):
-        """安装希沃视频展台 30
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃物联校园安装函数
     def _install_希沃物联校园(self, software_name, cache_file):
-        """安装希沃物联校园 31
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃互动签名安装函数
     def _install_希沃互动签名(self, software_name, cache_file):
-        """安装希沃互动签名 32
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
@@ -4750,19 +4263,13 @@ class InstallationWindow:
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃伪装插件安装函数
     def _install_希沃伪装插件(self, software_name, cache_file):
-        """安装希沃伪装插件 33
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
             # 检查希沃白板5快捷方式是否存在
             seewowhiteboard5_lnk = "C:\\Users\\Public\\Desktop\\希沃白板 5.lnk"
@@ -4813,52 +4320,35 @@ class InstallationWindow:
                     self._update_status(software_name, "安装失败")
                     raise FileNotFoundError(f"未找到希沃伪装插件.exe，路径不存在: {伪装插件_exe}")
                 
-                # 清理临时文件
-                self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+                    self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             else:
                 # 不存在希沃白板5快捷方式，报错安装失败
                 self.installer_logger.error(f"{software_name}: 安装失败，未找到希沃白板5快捷方式")
                 self._update_status(software_name, "安装失败")
                 raise FileNotFoundError(f"未找到希沃白板5快捷方式，路径不存在: {seewowhiteboard5_lnk}")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     # 远程互动课堂安装函数
     def _install_远程互动课堂(self, software_name, cache_file):
-        """安装远程互动课堂 34
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # AGC解锁工具安装函数
     def _install_AGC解锁工具(self, software_name, cache_file):
-        """安装AGC解锁工具 35
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
@@ -4878,27 +4368,19 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 触摸服务程序安装函数
     def _install_触摸服务程序(self, software_name, cache_file):
-        """安装触摸服务程序 36
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
@@ -4931,27 +4413,19 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃随机抽选安装函数
     def _install_希沃随机抽选(self, software_name, cache_file):
-        """安装希沃随机抽选 37
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
@@ -4971,27 +4445,19 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 触摸框测试程序安装函数
     def _install_触摸框测试程序(self, software_name, cache_file):
-        """安装触摸框测试程序 38
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
@@ -5011,27 +4477,19 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 省平台登录插件安装函数
     def _install_省平台登录插件(self, software_name, cache_file):
-        """安装省平台登录插件 39
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
@@ -5048,66 +4506,40 @@ class InstallationWindow:
             # 终止安装程序进程
             self._kill_process(software_name, "省平台登录插件.exe")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希象传屏[发送端]安装函数
     def _install_希象传屏发送端(self, software_name, cache_file):
-        """安装希象传屏[发送端] 40
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
-        # 调用下载参数
         installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
         
-        # 调用静默安装函数
         self.silent_installation(software_name, installer_path)
         
-        # 清理临时文件
         self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
     
     # 希象传屏[接收端]安装函数
     def _install_希象传屏接收端(self, software_name, cache_file):
-        """安装希象传屏[接收端] 41
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
-        # 调用下载参数
         installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
         
-        # 调用静默安装函数
         self.silent_installation(software_name, installer_path)
         
-        # 清理临时文件
         self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
     
     # 希沃品课[小组端]安装函数
     def _install_希沃品课小组端(self, software_name, cache_file):
-        """安装希沃品课[小组端] 42
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
             # 创建安装目录
             install_dir = r"C:\Program Files (x86)\Seewo\SeewoPinK"
             self.installer_logger.info(f"{software_name}: 创建安装目录: {install_dir}")
             os.makedirs(install_dir, exist_ok=True)
             
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
@@ -5125,27 +4557,19 @@ class InstallationWindow:
             # 终止进程（确保已退出）
             self._kill_process(software_name, "seewoPincoGroup.exe")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 希沃品课[教师端]安装函数
     def _install_希沃品课教师端(self, software_name, cache_file):
-        """安装希沃品课[教师端] 43
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
@@ -5165,181 +4589,118 @@ class InstallationWindow:
             # 终止进程（确保已退出）
             self._kill_process(software_name, "seewoPincoTeacher.exe")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 易启学[学生端]安装函数
     def _install_易启学学生端(self, software_name, cache_file):
-        """安装易启学[学生端] 44
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 易启学[教师端]安装函数
     def _install_易启学教师端(self, software_name, cache_file):
-        """安装易启学[教师端] 45
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 微信安装函数
     def _install_微信(self, software_name, cache_file):
-        """安装微信 46
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # QQ安装函数
     def _install_QQ(self, software_name, cache_file):
-        """安装QQ 47
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # UU远程安装函数
     def _install_UU远程(self, software_name, cache_file):
-        """安装UU远程 48
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # 网易云音乐安装函数
     def _install_网易云音乐(self, software_name, cache_file):
-        """安装网易云音乐 49
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
         try:
-            # 调用下载参数
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 调用静默安装函数
             self.silent_installation(software_name, installer_path)
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
     # office2021安装函数
     def _install_office2021(self, software_name, cache_file):
-        """安装office2021 50
-        
-        Args:
-            software_name: 软件名称
-            cache_file: 缓存文件信息
-        """
-        try:
-            # 调用下载参数，下载到Temporary目录
+        try:            
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 非静默安装，直接运行office2021.exe
             self.installer_logger.info(f"{software_name}: 开始安装")
 
             
@@ -5355,7 +4716,6 @@ class InstallationWindow:
             # 检查并结束OfficeC2RClient.exe进程
             self.installer_logger.info(f"{software_name}: 检查并结束OfficeC2RClient.exe进程")
             try:
-                # 使用taskkill结束OfficeC2RClient.exe进程
                 subprocess.run(["taskkill", "/f", "/im", "OfficeC2RClient.exe"], check=False, shell=False)
             except Exception:
                 self.installer_logger.error(f"{software_name}: 结束OfficeC2RClient.exe进程时出错: {str(e)}")
@@ -5373,7 +4733,6 @@ class InstallationWindow:
             
             self._wait_for_condition(software_name, check_process_exited, timeout=10, check_interval=1)
             
-            # 再次检查并结束OfficeC2RClient.exe进程
             try:
                 subprocess.run(["taskkill", "/f", "/im", "OfficeC2RClient.exe"], check=False, shell=False)
             except Exception:
@@ -5383,10 +4742,9 @@ class InstallationWindow:
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
             
-            # 清理临时文件
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
-        except Exception:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(e)}", exc_info=True)
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
             raise
     
@@ -5433,7 +4791,7 @@ class CacheWindow:
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
                 self.logger.info("缓存窗口图标设置成功")
-        except Exception:
+        except Exception as e:
             self.logger.error(f"设置缓存窗口图标时出错: {e}")
 
         self._main_window = main_window
@@ -5640,7 +4998,7 @@ class CacheWindow:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
             server_size = None
             try:
-                resp = requests.head(cache_file["url"], headers=headers, timeout=10, allow_redirects=True, verify=False)
+                resp = requests.head(get_download_url(cache_file), headers=headers, timeout=10, allow_redirects=True, verify=False)
                 if resp.status_code == 200 and "content-length" in resp.headers:
                     server_size = int(resp.headers["content-length"])
                     self.root.after(0, lambda s=software, ss=server_size: self._set_remote_size(s, ss))
@@ -6011,7 +5369,7 @@ class CacheWindow:
         """缓存单个软件到 cache 目录，使用与安装器相同的下载方式"""
         filename = cache_file["filename"]
         download_path = os.path.join(CACHE_DIR, filename)
-        url = cache_file["url"]
+        url = get_download_url(cache_file)
 
         # 若已存在且已被标记为已缓存，跳过
         if os.path.exists(download_path):
@@ -6171,7 +5529,7 @@ class CacheWindow:
                         notification.notify(title="SEEVVO全家桶一剑下崽弃", message=f"{software} 缓存异常", app_icon=icon_path if os.path.exists(icon_path) else None)
                     except Exception:
                         pass
-        except Exception:
+        except Exception as e:
             self.logger.error(f"{software}: 缓存下载失败 - {e}")
             self.root.after(0, lambda s=software: self._set_cache_status(s, "未缓存"))
             if not getattr(self, 'aggregate_notifications', True):
@@ -6555,7 +5913,7 @@ class ResultOverlay:
                 os.startfile(log_dir)
             else:
                 os.startfile(BASE_DIR)
-        except Exception:
+        except Exception as e:
             get_logger("Main").error(f"打开日志文件夹失败: {e}")
 
     def close(self):
