@@ -118,6 +118,7 @@ DOWNLOAD_SOURCES = {
 DEFAULT_SOURCE = "hk"
 current_source = DEFAULT_SOURCE
 SOURCE_CONFIG_FILE = os.path.join(BASE_DIR, "config", "download_source.ini")
+RETAIN_INSTALLER_CONFIG_FILE = os.path.join(BASE_DIR, "config", "retain_installer.ini")
 
 def load_download_source():
     """从配置文件加载下载源设置"""
@@ -141,6 +142,29 @@ def save_download_source():
             os.makedirs(config_dir, exist_ok=True)
         with open(SOURCE_CONFIG_FILE, 'w', encoding='utf-8') as f:
             f.write(current_source)
+        return True
+    except Exception:
+        return False
+
+def load_retain_installer():
+    """从配置文件加载保留安装包选项设置"""
+    try:
+        if os.path.exists(RETAIN_INSTALLER_CONFIG_FILE):
+            with open(RETAIN_INSTALLER_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                saved_value = f.read().strip()
+                return saved_value == "1"
+    except Exception:
+        pass
+    return False
+
+def save_retain_installer(value):
+    """保存保留安装包选项设置到配置文件"""
+    try:
+        config_dir = os.path.dirname(RETAIN_INSTALLER_CONFIG_FILE)
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir, exist_ok=True)
+        with open(RETAIN_INSTALLER_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            f.write("1" if value else "0")
         return True
     except Exception:
         return False
@@ -1161,8 +1185,8 @@ class MainWindowApp:
         source_label = ctk.CTkLabel(
             source_frame,
             text="GitHub下载源:",
-            text_color=Colors.TEXT_SECONDARY,
-            font=self.create_font(12, "normal", logger=self.fonts_logger)
+            text_color=Colors.TEXT,
+            font=self.create_font(18, logger=self.fonts_logger)
         )
         source_label.pack(side="left", padx=(0, 5))
         
@@ -1173,8 +1197,8 @@ class MainWindowApp:
             values=list(DOWNLOAD_SOURCES.keys()),
             command=self._on_source_change,
             width=120,
-            height=28,
-            font=self.create_font(12, "normal", logger=self.fonts_logger),
+            height=32,
+            font=self.create_font(18, logger=self.fonts_logger),
             fg_color=Colors.BUTTON,
             button_color=Colors.BUTTON_HOVER,
             button_hover_color=Colors.BUTTON_HOVER,
@@ -1182,6 +1206,32 @@ class MainWindowApp:
             dropdown_hover_color=Colors.BUTTON_HOVER
         )
         source_menu.pack(side="left")
+        
+        # 保留安装包选项
+        retain_frame = ctk.CTkFrame(title_row, fg_color="transparent")
+        retain_frame.pack(side="right", padx=(0, 20))
+        
+        retain_installer_value = load_retain_installer()
+        self.retain_installer_var = ctk.IntVar(value=1 if retain_installer_value else 0)
+        
+        def on_retain_installer_change():
+            save_retain_installer(self.retain_installer_var.get() == 1)
+        
+        retain_checkbox = ctk.CTkCheckBox(
+            retain_frame,
+            text="安装后保留安装包",
+            variable=self.retain_installer_var,
+            command=on_retain_installer_change,
+            text_color=Colors.TEXT,
+            font=self.create_font(18, logger=self.fonts_logger),
+            fg_color=Colors.BUTTON,
+            hover_color=Colors.HOVER,
+            border_color=Colors.CHECKBOX_BORDER,
+            checkmark_color=Colors.CHECKMARK,
+            border_width=Dimensions.CHECKBOX_BORDER_WIDTH,
+            corner_radius=Dimensions.CORNER_RADIUS_SMALL
+        )
+        retain_checkbox.pack(side="left")
         
         divider = ctk.CTkFrame(
             card_frame,
@@ -1451,10 +1501,10 @@ class MainWindowApp:
                     self.install_window.root.focus_force()
                 except (AttributeError, TclError):
                     main_logger.info("现有安装窗口已关闭，创建新的安装窗口")
-                    self.install_window = InstallationWindow(selected_software, self)
+                    self.install_window = InstallationWindow(selected_software, self, self.retain_installer_var.get())
             else:
                 main_logger.info("创建新的安装窗口")
-                self.install_window = InstallationWindow(selected_software, self)
+                self.install_window = InstallationWindow(selected_software, self, self.retain_installer_var.get())
             
             main_logger.info("隐藏主窗口")
             try:
@@ -2240,7 +2290,7 @@ exit
             pass
 
 class InstallationWindow:
-    def __init__(self, selected_software, main_window=None):
+    def __init__(self, selected_software, main_window=None, retain_installer=False):
         self.installer_logger = get_logger("Installer")
         self.installer_logger.info("安装窗口初始化开始")
         
@@ -2269,6 +2319,8 @@ class InstallationWindow:
         self.create_font = create_global_font
         
         self._main_window = main_window
+        self.retain_installer = retain_installer
+        self.installer_logger.info(f"保留安装包选项: {retain_installer}")
         
         self.selected_software = selected_software
         self.installer_logger.info(f"安装窗口初始化完成，共 {len(selected_software)} 个软件待安装")
@@ -2720,6 +2772,7 @@ class InstallationWindow:
                 self.installer_logger.info(f"{software_name}: 下载完成")
                 # 下载完成，设置进度为50%
                 self._update_progress(software_name, 50)
+                
                 return download_path  # 返回实际的下载路径
             except requests.exceptions.RequestException as e:
                 retry_count += 1
@@ -3387,7 +3440,7 @@ class InstallationWindow:
                 self.installer_logger.info(f"{software_name}: 使用默认安装方式")
                 installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
                 self.silent_installation(software_name, installer_path)
-                self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+                self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             self._update_status(software_name, "已安装")
             self._update_progress(software_name, 100)
@@ -3396,10 +3449,24 @@ class InstallationWindow:
             self._update_status(software_name, "安装失败")
             self._update_progress(software_name, 0)
     
-    def _cleanup_temp_files(self, temp_dir, filename):
+    def _cleanup_temp_files(self, temp_dir, filename, software_name=None):
+        temp_path = os.path.join(temp_dir, filename)
+        
+        if self.retain_installer and TEMP_DIR in temp_path:
+            # 保留安装包选项开启，且文件在Temporary目录中，将其剪切到cache目录
+            cache_path = os.path.join(CACHE_DIR, filename)
+            self.installer_logger.info(f"保留安装包选项已开启，将文件从 {temp_path} 剪切到 {cache_path}")
+            try:
+                os.makedirs(CACHE_DIR, exist_ok=True)
+                shutil.move(temp_path, cache_path)
+                self.installer_logger.info(f"文件成功剪切到cache目录")
+                if software_name:
+                    self._update_cache_status(software_name, "已缓存")
+                return
+            except Exception as e:
+                self.installer_logger.error(f"剪切文件到cache目录失败 - {str(e)}")
         max_retries = 3
         retry_count = 0
-        temp_path = os.path.join(temp_dir, filename)
         
         while retry_count < max_retries:
             try:
@@ -3485,7 +3552,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             self._update_status(software_name, "安装完成")
         except Exception as err:
@@ -3498,7 +3565,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             self._update_status(software_name, "安装完成")
         except Exception as err:
@@ -3513,7 +3580,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             self._update_status(software_name, "安装完成")
         except Exception as err:
@@ -3528,7 +3595,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             self._update_status(software_name, "安装完成")
         except Exception as err:
@@ -3555,7 +3622,7 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             self._update_status(software_name, "安装完成")
         except Exception as err:
@@ -3600,7 +3667,7 @@ class InstallationWindow:
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
@@ -3618,7 +3685,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3717,7 +3784,7 @@ class InstallationWindow:
                 self.installer_logger.warning(f"{software_name}: 删除main.js失败 - {str(err)}")
             
             # 清理下载的安装包
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3734,7 +3801,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3750,7 +3817,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3777,7 +3844,7 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3804,7 +3871,7 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3831,7 +3898,7 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3858,7 +3925,7 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3887,7 +3954,7 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到源快捷方式文件: {source_lnk}")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3903,7 +3970,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3919,7 +3986,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3935,7 +4002,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -3951,7 +4018,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -3967,7 +4034,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -3983,7 +4050,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -3999,7 +4066,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4015,7 +4082,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4054,7 +4121,7 @@ class InstallationWindow:
             shutil.copy2(source_file, target_file)
             
             self._update_status(software_name, "安装完成")
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
@@ -4119,7 +4186,7 @@ class InstallationWindow:
             os.remove(source_file)
             
             # 清理下载的安装包
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -4136,7 +4203,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4152,7 +4219,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4168,7 +4235,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4184,7 +4251,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4200,7 +4267,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4216,7 +4283,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4258,7 +4325,7 @@ class InstallationWindow:
                     self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
             # 清理下载的安装包
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -4320,7 +4387,7 @@ class InstallationWindow:
                     self._update_status(software_name, "安装失败")
                     raise FileNotFoundError(f"未找到希沃伪装插件.exe，路径不存在: {伪装插件_exe}")
                 
-                    self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+                    self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             else:
                 # 不存在希沃白板5快捷方式，报错安装失败
                 self.installer_logger.error(f"{software_name}: 安装失败，未找到希沃白板5快捷方式")
@@ -4337,7 +4404,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4368,7 +4435,7 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -4413,7 +4480,7 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -4445,7 +4512,7 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -4477,7 +4544,7 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -4506,7 +4573,7 @@ class InstallationWindow:
             # 终止安装程序进程
             self._kill_process(software_name, "省平台登录插件.exe")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -4522,7 +4589,7 @@ class InstallationWindow:
         
         self.silent_installation(software_name, installer_path)
         
-        self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+        self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
     
     # 希象传屏[接收端]安装函数
     def _install_希象传屏接收端(self, software_name, cache_file):
@@ -4530,7 +4597,7 @@ class InstallationWindow:
         
         self.silent_installation(software_name, installer_path)
         
-        self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+        self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
     
     # 希沃品课[小组端]安装函数
     def _install_希沃品课小组端(self, software_name, cache_file):
@@ -4557,7 +4624,7 @@ class InstallationWindow:
             # 终止进程（确保已退出）
             self._kill_process(software_name, "seewoPincoGroup.exe")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -4589,7 +4656,7 @@ class InstallationWindow:
             # 终止进程（确保已退出）
             self._kill_process(software_name, "seewoPincoTeacher.exe")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
@@ -4606,7 +4673,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4622,7 +4689,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4638,7 +4705,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4654,7 +4721,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4670,7 +4737,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4686,7 +4753,7 @@ class InstallationWindow:
             
             self.silent_installation(software_name, installer_path)
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
             # 更新状态为已安装
             self._update_status(software_name, "已安装")
@@ -4742,7 +4809,7 @@ class InstallationWindow:
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
             
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"])
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
             self._update_status(software_name, "安装失败")
