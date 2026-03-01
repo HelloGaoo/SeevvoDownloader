@@ -1618,16 +1618,26 @@ class MainWindowApp:
         results = []
         with concurrent_futures.ThreadPoolExecutor(max_workers=3) as executor:
             futures = {executor.submit(fetch_version, key): key for key in DOWNLOAD_SOURCES.keys()}
-            for future in concurrent_futures.as_completed(futures):
-                source_key, version, error = future.result()
-                if version:
-                    main_logger.info(f"从 {DOWNLOAD_SOURCES[source_key]['name']} 获取到版本号: {version}")
-                    results.append((source_key, version))
-                    for f in futures:
-                        f.cancel()
-                    break
-                elif error:
-                    main_logger.warning(f"从 {DOWNLOAD_SOURCES[source_key]['name']} 获取失败: {error}")
+            # 设置10秒超时
+            done, not_done = concurrent_futures.wait(futures, timeout=10)
+            
+            for future in not_done:
+                future.cancel()
+                main_logger.warning(f"取消超时的更新检查任务")
+            
+            for future in done:
+                try:
+                    source_key, version, error = future.result()
+                    if version:
+                        main_logger.info(f"从 {DOWNLOAD_SOURCES[source_key]['name']} 获取到版本号: {version}")
+                        results.append((source_key, version))
+                        for f in futures:
+                            f.cancel()
+                        break
+                    elif error:
+                        main_logger.warning(f"从 {DOWNLOAD_SOURCES[source_key]['name']} 获取失败: {error}")
+                except Exception as e:
+                    main_logger.warning(f"处理更新检查结果时出错: {e}")
         
         if not results:
             main_logger.error("所有下载源都无法获取版本信息")
@@ -3645,12 +3655,10 @@ class InstallationWindow:
     def _install_希沃壁纸(self, software_name, cache_file):
         try:
             self.installer_logger.info(f"{software_name}: 开始下载")
-            # 明确更新状态为下载中
             self._update_status(software_name, "下载中")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
             output_dir = r"C:\Windows\Web"
-            # 明确更新状态为解压中
             self._update_status(software_name, "解压中")
             self._decompress_7Z(software_name, installer_path, output_dir)
             
@@ -4108,69 +4116,7 @@ class InstallationWindow:
     
     # 白板去除横幅安装函数
     def _install_白板去除横幅(self, software_name, cache_file):
-        try:
-            self.installer_logger.info(f"{software_name}: 请你确保已安装希沃白板 5，某些白板可能应用不成功")
-            
-            self.installer_logger.info(f"{software_name}: 开始下载")
-            installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
-            
-            output_dir = TEMP_DIR
-            self.installer_logger.info(f"{software_name}: 开始解压到 {output_dir}")
-            self._decompress_7Z(software_name, installer_path, output_dir)
-            
-            # 复制破解补丁文件到指定目录
-            source_file = os.path.join(TEMP_DIR, "SWCoreSharp.SWAuthorization.SWAuthClients.dll")
-            dest_file = "C:\\Program Files (x86)\\Seewo\\EasiNote5\\EasiNote5_5.2.2.9633\\Main\\SWCoreSharp.SWAuthorization.SWAuthClients.dll"
-            
-            # 确保目标目录存在
-            dest_dir = os.path.dirname(dest_file)
-            os.makedirs(dest_dir, exist_ok=True)
-            
-            if os.path.exists(source_file):
-                # 检查是否有管理员权限
-                if not is_admin():
-                    self.installer_logger.warning(f"{software_name}: 当前进程没有管理员权限，需要以管理员身份运行才能写入Program Files目录")
-                    self._update_status(software_name, "需要管理员权限")
-                    # 尝试以管理员身份重启
-                    if run_as_admin():
-                        self.installer_logger.info(f"{software_name}: 已尝试以管理员身份重启程序，请在新窗口中继续安装")
-                        self._update_status(software_name, "请在新窗口中继续")
-                        return
-                    else:
-                        self.installer_logger.error(f"{software_name}: 无法获取管理员权限，请手动以管理员身份运行程序")
-                        self._update_status(software_name, "安装失败")
-                        raise PermissionError("需要管理员权限才能写入Program Files目录")
-                
-                # 尝试复制文件
-                self.installer_logger.info(f"{software_name}: 复制破解补丁文件到 {dest_file}")
-                try:
-                    shutil.copy2(source_file, dest_file)
-                    self.installer_logger.info(f"{software_name}: 破解补丁文件已复制")
-                except PermissionError as pe:
-                    self.installer_logger.error(f"{software_name}: 复制文件时权限不足 - {str(pe)}")
-                    self._update_status(software_name, "安装失败")
-                    # 尝试以管理员身份重启
-                    if run_as_admin():
-                        self.installer_logger.info(f"{software_name}: 已尝试以管理员身份重启程序，请在新窗口中继续安装")
-                        self._update_status(software_name, "请在新窗口中继续")
-                    raise
-            else:
-                self.installer_logger.error(f"{software_name}: 未找到破解补丁文件: {source_file}")
-                self._update_status(software_name, "安装失败")
-                raise FileNotFoundError(f"未找到破解补丁文件: {source_file}")
-            
-            # 删除临时文件
-            self.installer_logger.info(f"{software_name}: 删除临时文件: {source_file}")
-            os.remove(source_file)
-            
-            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
-            
-            self._update_status(software_name, "安装完成")
-            self.installer_logger.info(f"{software_name}: 安装完成")
-        except Exception as err:
-            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
-            self._update_status(software_name, "安装失败")
-            raise
+        pass
     
     # 班级优化大师安装函数
     def _install_班级优化大师(self, software_name, cache_file):
@@ -4515,17 +4461,12 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 运行安装程序
             self.installer_logger.info(f"{software_name}: 开始安装")
 
-            
-            # 启动安装程序
             process = subprocess.Popen([installer_path])
             
-            # 等待省平台登录插件进程出现
             self._wait_for_process(software_name, "省平台登录插件.exe", timeout=15, check_interval=2)
             
-            # 终止安装程序进程
             self._kill_process(software_name, "省平台登录插件.exe")
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
@@ -4556,7 +4497,6 @@ class InstallationWindow:
     # 希沃品课[小组端]安装函数
     def _install_希沃品课小组端(self, software_name, cache_file):
         try:
-            # 创建安装目录
             install_dir = r"C:\Program Files (x86)\Seewo\SeewoPinK"
             self.installer_logger.info(f"{software_name}: 创建安装目录: {install_dir}")
             os.makedirs(install_dir, exist_ok=True)
@@ -4565,7 +4505,6 @@ class InstallationWindow:
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
             self.installer_logger.info(f"{software_name}: 开始静默安装")
-            # 使用/S参数进行静默安装
             process = subprocess.Popen([installer_path, "/S"])
             
             # 等待seewoPincoGroup.exe进程出现
@@ -4574,7 +4513,6 @@ class InstallationWindow:
             # 等待安装进程退出
             self._wait_for_process_exit(software_name, process, timeout=45, check_interval=5)
             
-            # 终止进程（确保已退出）
             self._kill_process(software_name, "seewoPincoGroup.exe")
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
@@ -4594,8 +4532,6 @@ class InstallationWindow:
             
             self.installer_logger.info(f"{software_name}: 开始静默安装")
 
-            
-            # 使用/S参数进行静默安装
             process = subprocess.Popen([installer_path, "/S"])
             
             # 等待seewoPincoTeacher.exe进程出现
