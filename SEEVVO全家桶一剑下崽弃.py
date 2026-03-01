@@ -41,6 +41,8 @@ import py7zr
 import requests
 import urllib3
 from plyer import notification
+import pythoncom
+from win32com.client import Dispatch
 from version import __version__
 
 VERSION = f"v{__version__}"
@@ -1007,8 +1009,8 @@ CACHE_FILES = [
     {"filename": "希象传屏[接收端].exe", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/screensharesuite.exe"},
     {"filename": "希沃品课[小组端].exe", "url": "https://cstore-pub-seewo-report-tx.seewo.com/seewo-report_5d829b9cd5e24d5fa1c0a2b5602c9d6e?attname=seewoPincoGroupSetup_1.2.30.1640.exe"},
     {"filename": "希沃品课[教师端].exe", "url": "https://imlizhi-store-https.seewo.com/seewoPincoTeacher_1.2.43.7285(20250530191221).exe"},
-    {"filename": "希沃易启学[学生端].exe", "url": "https://imlizhi-store-https.seewo.com/SeewoYiQiXueStudent_1.3.14.4413(20250717180417).exe"},
-    {"filename": "希沃易启学[教师端].exe", "url": "https://imlizhi-store-https.seewo.com/SeewoYiQiXueTeacher_1.3.14.4413(20250717180300).exe"},
+    {"filename": "ClassIsland2.exe", "url": "https://get.classisland.tech/d/ClassIsland-Ningbo-S3/classisland/distribution-v2/2.0/2.0.0.2/ClassIsland_app_windows_x64_selfContained_folder.zip"},
+    {"filename": "ClassWidgets.exe", "url": "https://ghfile.geekertao.top/https://github.com/Class-Widgets/Class-Widgets/releases/download/1.2.0.5/ClassWidgets-Windows-x64.zip"},
     {"filename": "微信.exe", "url": "https://dldir1v6.qq.com/weixin/Universal/Windows/WeChatWin.exe"},
     {"filename": "QQ.exe", "url": "https://dldir1v6.qq.com/qqfile/qq/QQNT/Windows/QQ_9.9.21_250822_x64_01.exe"},
     {"filename": "UU远程.exe", "github_path": "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/uuyc_4.16.5_gwgame.exe"},
@@ -1032,7 +1034,7 @@ class MainWindowApp:
         "希沃截图", "希沃批注", "希沃计时器", "希沃放大镜", "希沃浏览器", "希沃智能笔", "反馈器助手", "希沃易课堂", "希沃输入法", "PPT小工具",
         "希沃轻白板", "希沃白板5", "希沃白板3", "ikun启动图", "白板去除横幅", "班级优化大师", "希沃课堂助手", "希沃电脑助手", "希沃导播助手", "希沃视频展台",
         "希沃物联校园", "希沃互动签名", "希沃伪装插件", "远程互动课堂", "AGC解锁工具", "触摸服务程序", "希沃随机抽选", "触摸框测试程序", "省平台登录插件",
-        "希象传屏[发送端]", "希象传屏[接收端]", "希沃品课[小组端]", "希沃品课[教师端]", "希沃易启学[学生端]", "希沃易启学[教师端]", "微信", "QQ", "UU远程", "网易云音乐", "office2021"
+        "希象传屏[发送端]", "希象传屏[接收端]", "希沃品课[小组端]", "希沃品课[教师端]", "ClassIsland2", "ClassWidgets", "微信", "QQ", "UU远程", "网易云音乐", "office2021"
     ]
 
     def __init__(self):
@@ -1362,7 +1364,7 @@ class MainWindowApp:
                     checkbox.pack(anchor="w", pady=(Dimensions.PADY_MEDIUM1, Dimensions.PADY_MEDIUM1), padx=Dimensions.PADX_SMALL, fill="x")
                     self.software_checkboxes[software] = checkbox
                     
-                    if software in ["希沃易启学[学生端]", "希沃易启学[教师端]", "白板去除横幅"]:
+                    if software in ["白板去除横幅"]:
                         checkbox.configure(state="disabled")
                     
                     current_index += 1
@@ -1417,6 +1419,21 @@ class MainWindowApp:
                     if not result:
                         self.software_checkboxes[software].deselect()
         
+        elif software == "ClassIsland2" or software == "ClassWidgets":
+            if self.software_checkboxes[software].get() == 1:
+                if software == "ClassIsland2":
+                    other_software = "ClassWidgets"
+                else:
+                    other_software = "ClassIsland2"
+                
+                if self.software_checkboxes[other_software].get() == 1:
+                    result = messagebox.askokcancel(
+                        "SEEVVO全家桶一剑下崽弃",
+                        "同时安装课表软件：ClassIsland2和ClassWidgets 可能会导致功能冲突，建议选择其一安装"
+                    )
+                    if not result:
+                        self.software_checkboxes[software].deselect()
+        
         if software == "希沃品课[小组端]":
             if self.software_checkboxes[software].get() == 1:
                 if self.software_checkboxes["希沃品课[教师端]"].get() == 1:
@@ -1436,12 +1453,7 @@ class MainWindowApp:
                     if not result:
                         self.software_checkboxes[software].deselect()
         
-        elif software == "希沃易启学[学生端]":
-            if self.software_checkboxes[software].get() == 1:
-                self.software_checkboxes["希沃易启学[教师端]"].deselect()
-        elif software == "希沃易启学[教师端]":
-            if self.software_checkboxes[software].get() == 1:
-                self.software_checkboxes["希沃易启学[学生端]"].deselect()
+
         
         selected_count = sum(1 for checkbox in self.software_checkboxes.values() if checkbox.get() == 1)
         total_count = len(self.software_checkboxes)
@@ -1454,7 +1466,7 @@ class MainWindowApp:
     
     def select_all(self):
         """全选所有可选软件"""
-        excluded_software = ["希沃易启学[学生端]", "希沃易启学[教师端]", "希沃输入法", "希沃电脑助手", "希沃课堂助手", "希沃品课[教师端]", "希沃品课[小组端]", "白板去除横幅"]
+        excluded_software = ["希沃输入法", "希沃电脑助手", "希沃课堂助手", "希沃品课[教师端]", "希沃品课[小组端]", "白板去除横幅", "ClassIsland2", "ClassWidgets"]
         
         for software, checkbox in self.software_checkboxes.items():
             if software not in excluded_software:
@@ -1463,7 +1475,7 @@ class MainWindowApp:
     
     def deselect_all(self):
         """取消全选所有可选软件"""
-        excluded_software = ["希沃易启学[学生端]", "希沃易启学[教师端]", "白板去除横幅"]
+        excluded_software = ["白板去除横幅"]
         
         for software, checkbox in self.software_checkboxes.items():
             if software not in excluded_software:
@@ -1588,7 +1600,7 @@ class MainWindowApp:
         """检查是否有新版本可用"""
         main_logger = get_logger("Main")
         github_path = "/HelloGaoo/SeevvoDownloader/releases/download/v1.0.0/Version.ini"
-        main_logger.info("静默检查更新（并发请求三个下载源）")
+        main_logger.info("静默检查更新")
         
         def fetch_version(source_key):
             try:
@@ -3637,7 +3649,6 @@ class InstallationWindow:
             self._update_status(software_name, "下载中")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Windows\Web目录
             output_dir = r"C:\Windows\Web"
             # 明确更新状态为解压中
             self._update_status(software_name, "解压中")
@@ -3663,7 +3674,6 @@ class InstallationWindow:
             else:
                 self.installer_logger.warning(f"{software_name}: 未找到壁纸文件: {wallpaper_path}")
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
             
@@ -3687,7 +3697,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -3706,12 +3715,10 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到Temporary目录
             self.installer_logger.info(f"{software_name}: 开始解压到Temporary目录")
             output_dir = TEMP_DIR
             self._decompress_7Z(software_name, installer_path, output_dir)
             
-            # 查找静默安装程序
             setup_files = ["setup.exe", "install.exe", "希沃桌面.exe"]
             setup_path = None
             for setup_file in setup_files:
@@ -3721,7 +3728,6 @@ class InstallationWindow:
                     break
             
             if setup_path:
-                # 执行静默安装
                 self.installer_logger.info(f"{software_name}: 开始静默安装")
                 self.silent_installation(software_name, setup_path)
             else:
@@ -3731,7 +3737,6 @@ class InstallationWindow:
             main_js_source = os.path.join(TEMP_DIR, "main.js")
             main_js_dest = r"C:\Programcache\LightAppRendersResources\seewo-lightapp-launcher\seewo-lightapp-launcher_0.3.0.67\main.js"
             if os.path.exists(main_js_source):
-                # 确保目标目录存在
                 main_js_dest_dir = os.path.dirname(main_js_dest)
                 os.makedirs(main_js_dest_dir, exist_ok=True)
                 
@@ -3766,27 +3771,22 @@ class InstallationWindow:
             except subprocess.CalledProcessError as err:
                 self.installer_logger.warning(f"{software_name}: 设置系统环境变量失败 - {str(err)}")
             
-            # 删除临时文件
             self.installer_logger.info(f"{software_name}: 清理临时文件")
             
-            # 删除希沃桌面.lnk
             try:
                 os.remove(os.path.join(TEMP_DIR, "希沃桌面.lnk"))
                 self.installer_logger.info(f"{software_name}: 删除临时文件: 希沃桌面.lnk")
             except Exception as err:
                 self.installer_logger.warning(f"{software_name}: 删除希沃桌面.lnk失败 - {str(err)}")
             
-            # 删除main.js
             try:
                 os.remove(os.path.join(TEMP_DIR, "main.js"))
                 self.installer_logger.info(f"{software_name}: 删除临时文件: main.js")
             except Exception as err:
                 self.installer_logger.warning(f"{software_name}: 删除main.js失败 - {str(err)}")
             
-            # 清理下载的安装包
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
         except Exception as err:
@@ -3803,7 +3803,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -3819,7 +3818,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -3831,7 +3829,6 @@ class InstallationWindow:
         try:
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
             output_dir = r"C:\Program Files (x86)\Seewo"
             self._decompress_7Z(software_name, installer_path, output_dir)
             
@@ -3846,7 +3843,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -3858,7 +3854,6 @@ class InstallationWindow:
         try:
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
             output_dir = r"C:\Program Files (x86)\Seewo"
             self._decompress_7Z(software_name, installer_path, output_dir)
             
@@ -3873,7 +3868,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -3885,11 +3879,9 @@ class InstallationWindow:
         try:
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
             output_dir = r"C:\Program Files (x86)\Seewo"
             self._decompress_7Z(software_name, installer_path, output_dir)
             
-            # 拷贝快捷方式到C:\Users\Public\Desktop
             source_shortcut = os.path.join(output_dir, "希沃计时器-WHYOS-Gaoo", "希沃计时器.lnk")
             dest_shortcut = os.path.join(r"C:\Users\Public\Desktop", "希沃计时器.lnk")
             
@@ -3900,7 +3892,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -3912,11 +3903,9 @@ class InstallationWindow:
         try:
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
             output_dir = r"C:\Program Files (x86)\Seewo"
             self._decompress_7Z(software_name, installer_path, output_dir)
             
-            # 拷贝快捷方式到C:\Users\Public\Desktop
             source_shortcut = os.path.join(output_dir, "希沃放大镜-WHYOS-Gaoo", "希沃放大镜.lnk")
             dest_shortcut = os.path.join(r"C:\Users\Public\Desktop", "希沃放大镜.lnk")
             
@@ -3927,7 +3916,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -3956,7 +3944,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -3972,7 +3959,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -3988,7 +3974,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4004,7 +3989,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4020,7 +4004,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4036,7 +4019,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4052,7 +4034,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4068,7 +4049,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4084,7 +4064,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4135,7 +4114,6 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到Temporary目录
             output_dir = TEMP_DIR
             self.installer_logger.info(f"{software_name}: 开始解压到 {output_dir}")
             self._decompress_7Z(software_name, installer_path, output_dir)
@@ -4185,10 +4163,8 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 删除临时文件: {source_file}")
             os.remove(source_file)
             
-            # 清理下载的安装包
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
         except Exception as err:
@@ -4205,7 +4181,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4221,7 +4196,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4237,7 +4211,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4253,7 +4226,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4269,7 +4241,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4285,7 +4256,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4298,12 +4268,10 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
             output_dir = r"C:\Program Files (x86)\Seewo"
             self.installer_logger.info(f"{software_name}: 开始解压到 {output_dir}")
             self._decompress_7Z(software_name, installer_path, output_dir)
             
-            # 拷贝三个快捷方式到C:\Users\Public\Desktop
             shortcut_info = [
                 ("古韵水墨风签名.lnk", "创建古韵水墨风签名桌面快捷方式失败"),
                 ("简约商务风签名.lnk", "创建简约商务风签名桌面快捷方式失败"),
@@ -4324,10 +4292,8 @@ class InstallationWindow:
                 else:
                     self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
             
-            # 清理下载的安装包
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
         except Exception as err:
@@ -4379,7 +4345,6 @@ class InstallationWindow:
                     self.installer_logger.info(f"{software_name}: 终止希沃伪装插件.exe进程")
                     self._kill_process(software_name, "希沃伪装插件.exe")
                     
-                    # 更新状态为安装完成
                     self._update_status(software_name, "安装完成")
                     self.installer_logger.info(f"{software_name}: 安装完成")
                 else:
@@ -4406,7 +4371,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4419,12 +4383,10 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
             output_dir = r"C:\Program Files (x86)\Seewo"
             self.installer_logger.info(f"{software_name}: 开始解压到 {output_dir}")
             self._decompress_7Z(software_name, installer_path, output_dir)
             
-            # 复制快捷方式到C:\Users\Public\Desktop
             source_shortcut = os.path.join(output_dir, "AGC解锁工具-WHYOS-Gaoo", "AGC解锁工具.lnk")
             dest_shortcut = os.path.join(os.environ["PUBLIC"], "Desktop", "AGC解锁工具.lnk")
             
@@ -4437,7 +4399,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
         except Exception as err:
@@ -4451,7 +4412,6 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
             output_dir = r"C:\Program Files (x86)\Seewo"
             self.installer_logger.info(f"{software_name}: 开始解压到 {output_dir}")
             self._decompress_7Z(software_name, installer_path, output_dir)
@@ -4482,7 +4442,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
         except Exception as err:
@@ -4496,7 +4455,6 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
             output_dir = r"C:\Program Files (x86)\Seewo"
             self.installer_logger.info(f"{software_name}: 开始解压到 {output_dir}")
             self._decompress_7Z(software_name, installer_path, output_dir)
@@ -4514,7 +4472,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
         except Exception as err:
@@ -4528,7 +4485,6 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行解压操作，解压到C:\Program Files (x86)\Seewo目录
             output_dir = r"C:\Program Files (x86)\Seewo"
             self.installer_logger.info(f"{software_name}: 开始解压到 {output_dir}")
             self._decompress_7Z(software_name, installer_path, output_dir)
@@ -4546,7 +4502,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
         except Exception as err:
@@ -4575,7 +4530,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
         except Exception as err:
@@ -4610,7 +4564,6 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行静默安装
             self.installer_logger.info(f"{software_name}: 开始静默安装")
             # 使用/S参数进行静默安装
             process = subprocess.Popen([installer_path, "/S"])
@@ -4626,7 +4579,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
         except Exception as err:
@@ -4640,7 +4592,6 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 开始下载")
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
             
-            # 执行静默安装
             self.installer_logger.info(f"{software_name}: 开始静默安装")
 
             
@@ -4658,7 +4609,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
         except Exception as err:
@@ -4675,7 +4625,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4691,7 +4640,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4707,7 +4655,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4723,7 +4670,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4739,7 +4685,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4755,7 +4700,6 @@ class InstallationWindow:
             
             self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             
-            # 更新状态为已安装
             self._update_status(software_name, "已安装")
         except Exception as err:
             self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
@@ -4770,24 +4714,19 @@ class InstallationWindow:
             
             self.installer_logger.info(f"{software_name}: 开始安装")
 
-            
-            # 运行office2021.exe，并等待其结束
             self.installer_logger.info(f"{software_name}: 运行office2021.exe安装程序")
             office_process = subprocess.Popen([installer_path])
             
-            # 等待office2021.exe进程结束
             self.installer_logger.info(f"{software_name}: 等待office2021.exe进程结束")
             office_process.wait()
             self.installer_logger.info(f"{software_name}: office2021.exe进程已结束")
             
-            # 检查并结束OfficeC2RClient.exe进程
             self.installer_logger.info(f"{software_name}: 检查并结束OfficeC2RClient.exe进程")
             try:
                 subprocess.run(["taskkill", "/f", "/im", "OfficeC2RClient.exe"], check=False, shell=False)
             except Exception:
                 self.installer_logger.error(f"{software_name}: 结束OfficeC2RClient.exe进程时出错: {str(e)}")
             
-            # 等待OfficeC2RClient.exe进程退出
             def check_process_exited():
                 try:
                     result = subprocess.run(
@@ -4796,7 +4735,7 @@ class InstallationWindow:
                     )
                     return "OfficeC2RClient.exe" not in result.stdout
                 except Exception:
-                    return True  # 如果检查失败，假设进程已退出
+                    return True
             
             self._wait_for_condition(software_name, check_process_exited, timeout=10, check_interval=1)
             
@@ -4805,7 +4744,6 @@ class InstallationWindow:
             except Exception:
                 self.installer_logger.error(f"{software_name}: 再次结束OfficeC2RClient.exe进程时出错: {str(e)}")
             
-            # 更新状态为安装完成
             self._update_status(software_name, "安装完成")
             self.installer_logger.info(f"{software_name}: 安装完成")
             
@@ -4815,6 +4753,103 @@ class InstallationWindow:
             self._update_status(software_name, "安装失败")
             raise
     
+    # ClassIsland2安装函数
+    def _install_ClassIsland2(self, software_name, cache_file):
+        try:
+            self.installer_logger.info(f"{software_name}: 开始下载")
+            installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
+            
+            self.installer_logger.info(f"{software_name}: 开始安装")
+            
+            install_dir = "C:\\ClassIsland2"
+            self.installer_logger.info(f"{software_name}: 创建安装目录: {install_dir}")
+            os.makedirs(install_dir, exist_ok=True)
+            
+            self.installer_logger.info(f"{software_name}: 解压文件到: {install_dir}")
+            with zipfile.ZipFile(installer_path, 'r') as zip_ref:
+                zip_ref.extractall(install_dir)
+            
+            shortcut_name = "ClassIsland2"
+            target_path = os.path.join(install_dir, "ClassIsland.exe")
+            public_desktop = os.path.join(os.environ.get("PUBLIC"), "Desktop")
+            shortcut_path = os.path.join(public_desktop, f"{shortcut_name}.lnk")
+            
+            self.installer_logger.info(f"{software_name}: 创建快捷方式到公用桌面: {shortcut_path}")
+            try:
+                pythoncom.CoInitialize()
+                shell = Dispatch('WScript.Shell')
+                shortcut = shell.CreateShortCut(shortcut_path)
+                shortcut.TargetPath = target_path
+                shortcut.WorkingDirectory = install_dir
+                shortcut.IconLocation = target_path
+                shortcut.save()
+                self.installer_logger.info(f"{software_name}: 快捷方式创建成功")
+            except Exception as e:
+                self.installer_logger.warning(f"{software_name}: 创建快捷方式失败 - {str(e)}")
+            finally:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
+            
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
+            
+            self._update_status(software_name, "安装完成")
+            self.installer_logger.info(f"{software_name}: 安装完成")
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
+            self._update_status(software_name, "安装失败")
+            raise
+    
+    # ClassWidgets安装函数
+    def _install_ClassWidgets(self, software_name, cache_file):
+        try:
+            self.installer_logger.info(f"{software_name}: 开始下载")
+            installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
+            
+            self.installer_logger.info(f"{software_name}: 开始安装")
+            
+            install_dir = "C:\\ClassWidgets"
+            self.installer_logger.info(f"{software_name}: 创建安装目录: {install_dir}")
+            os.makedirs(install_dir, exist_ok=True)
+            
+            self.installer_logger.info(f"{software_name}: 解压文件到: {install_dir}")
+            with zipfile.ZipFile(installer_path, 'r') as zip_ref:
+                zip_ref.extractall(install_dir)
+            
+            shortcut_name = "ClassWidgets"
+            target_path = r"C:\ClassWidgets\ClassWidgets.exe"
+            
+            public_desktop = os.path.join(os.environ.get("PUBLIC"), "Desktop")
+            shortcut_path = os.path.join(public_desktop, f"{shortcut_name}.lnk")
+            
+            self.installer_logger.info(f"{software_name}: 创建快捷方式到公用桌面: {shortcut_path}")
+            try:
+                pythoncom.CoInitialize()
+                shell = Dispatch('WScript.Shell')
+                shortcut = shell.CreateShortCut(shortcut_path)
+                shortcut.TargetPath = target_path
+                shortcut.WorkingDirectory = r"C:\ClassWidgets"
+                shortcut.IconLocation = target_path
+                shortcut.save()
+                self.installer_logger.info(f"{software_name}: 快捷方式创建成功")
+            except Exception as e:
+                self.installer_logger.warning(f"{software_name}: 创建快捷方式失败 - {str(e)}")
+            finally:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
+            
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
+            
+            self._update_status(software_name, "安装完成")
+            self.installer_logger.info(f"{software_name}: 安装完成")
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
+            self._update_status(software_name, "安装失败")
+            raise
+
     def _on_window_close(self):
         """窗口关闭事件处理"""
         self.installer_logger.info("窗口关闭事件触发，正常退出应用程序")
