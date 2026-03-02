@@ -4078,7 +4078,7 @@ class InstallationWindow:
             self._update_status(software_name, "安装失败")
             raise
     
-# ikun启动图安装函数
+    # ikun启动图安装函数
     def _install_ikun启动图(self, software_name, cache_file):
         try:
             installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
@@ -4233,7 +4233,7 @@ class InstallationWindow:
                         self.installer_logger.info(f"{software_name}: 复制{shortcut_name}到桌面")
                         shutil.copy2(source_shortcut, dest_shortcut)
                         self.installer_logger.info(f"{software_name}: {shortcut_name}已复制到桌面")
-                    except Exception:
+                    except Exception as e:
                         self.installer_logger.warning(f"{software_name}: {error_msg}: {str(e)}")
                 else:
                     self.installer_logger.warning(f"{software_name}: 未找到快捷方式: {source_shortcut}")
@@ -4298,7 +4298,7 @@ class InstallationWindow:
                     self._update_status(software_name, "安装失败")
                     raise FileNotFoundError(f"未找到希沃伪装插件.exe，路径不存在: {伪装插件_exe}")
                 
-                    self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
+                self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
             else:
                 # 不存在希沃白板5快捷方式，报错安装失败
                 self.installer_logger.error(f"{software_name}: 安装失败，未找到希沃白板5快捷方式")
@@ -4480,19 +4480,33 @@ class InstallationWindow:
     
     # 希象传屏[发送端]安装函数
     def _install_希象传屏发送端(self, software_name, cache_file):
-        installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
-        
-        self.silent_installation(software_name, installer_path)
-        
-        self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
+        try:
+            installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
+            
+            self.silent_installation(software_name, installer_path)
+            
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
+            
+            self._update_status(software_name, "安装完成")
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
+            self._update_status(software_name, "安装失败")
+            raise
     
     # 希象传屏[接收端]安装函数
     def _install_希象传屏接收端(self, software_name, cache_file):
-        installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
-        
-        self.silent_installation(software_name, installer_path)
-        
-        self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
+        try:
+            installer_path = self._download_file(software_name, cache_file, download_location="Temporary")
+            
+            self.silent_installation(software_name, installer_path)
+            
+            self._cleanup_temp_files(TEMP_DIR, cache_file["filename"], software_name)
+            
+            self._update_status(software_name, "安装完成")
+        except Exception as err:
+            self.installer_logger.error(f"{software_name}: 安装失败 - {str(err)}", exc_info=True)
+            self._update_status(software_name, "安装失败")
+            raise
     
     # 希沃品课[小组端]安装函数
     def _install_希沃品课小组端(self, software_name, cache_file):
@@ -4660,7 +4674,7 @@ class InstallationWindow:
             self.installer_logger.info(f"{software_name}: 检查并结束OfficeC2RClient.exe进程")
             try:
                 subprocess.run(["taskkill", "/f", "/im", "OfficeC2RClient.exe"], check=False, shell=False)
-            except Exception:
+            except Exception as e:
                 self.installer_logger.error(f"{software_name}: 结束OfficeC2RClient.exe进程时出错: {str(e)}")
             
             def check_process_exited():
@@ -4677,7 +4691,7 @@ class InstallationWindow:
             
             try:
                 subprocess.run(["taskkill", "/f", "/im", "OfficeC2RClient.exe"], check=False, shell=False)
-            except Exception:
+            except Exception as e:
                 self.installer_logger.error(f"{software_name}: 再次结束OfficeC2RClient.exe进程时出错: {str(e)}")
             
             self._update_status(software_name, "安装完成")
