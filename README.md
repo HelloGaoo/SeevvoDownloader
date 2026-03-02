@@ -145,7 +145,10 @@ SeevvoDownloader/
 欢迎提交 Issue 和 Pull Request 来帮助改进这个项目！
 
 ## 更新日志
-
+### v2.2.0 更新日期：26/03/02
+- 新增ClassIsland和ClassWidgets，移除希沃易启学
+- 更新软件启动时最多十秒检测版本机制
+- 优化代码
 ### v2.1.0 更新日期：26/02/28
 - 更新多GitHub下载源
 - 更新安装完保留安装包到缓存（cache）目录的选项
