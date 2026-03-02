@@ -13,6 +13,7 @@ env/
 # 打包/安装文件
 dist/
 build/
+*.spec
 
 # IDE配置
 .idea/

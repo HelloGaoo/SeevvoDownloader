@@ -324,7 +324,6 @@ def cleanup_old_logs_by_count(directory, max_count=10, keep_count=3):
 
 def cleanup_old_logs(directory, retention_days=LOG_RETENTION_DAYS):
     """清理旧日志文件"""
-    # 数量清理，超过10个保留最近3个
     cleanup_old_logs_by_count(directory, max_count=10, keep_count=3)
 
 
