@@ -13,5 +13,5 @@
 # 
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-__version__ = "2.2.0" 
-__version_info__ = (2, 2, 0)
+__version__ = "2.3.0" 
+__version_info__ = (2, 3, 0)

@@ -114,6 +114,10 @@ DOWNLOAD_SOURCES = {
     "edgeone": {
         "name": "EdgeOne加速站",
         "prefix": "https://edgeone.gh-proxy.org/https://github.com"
+    },
+    "geekertao": {
+        "name": "Geekertao加速站",
+        "prefix": "https://ghfile.geekertao.top/https://github.com"
     }
 }
 
@@ -3071,16 +3075,19 @@ class InstallationWindow:
                     return "未缓存"
             else:
                 cache_logger.warning(f"{software_name}: 服务器响应状态码: {response.status_code}, 服务器响应没有content-length")
-                return "未缓存"
+                cache_logger.info(f"{software_name}: 响应异常，但本地文件存在，返回已缓存")
+                return "已缓存"
         except requests.exceptions.RequestException as err:
             cache_logger.error(f"{software_name}: 网络请求异常: {err}", exc_info=True)
-            return "未缓存"
+            cache_logger.info(f"{software_name}: 网络请求异常，但本地文件存在，返回已缓存")
+            return "已缓存"
         except OSError as err:
             cache_logger.error(f"{software_name}: 文件操作异常: {err}", exc_info=True)
             return "未缓存"
         except Exception as err:
             cache_logger.error(f"{software_name}: 异常: {err}", exc_info=True)
-            return "未缓存"
+            cache_logger.info(f"{software_name}: 发生异常，但本地文件存在，返回已缓存")
+            return "已缓存"
     
     def start_installation_process(self):
         self.installer_logger.info(f"开始安装过程，共 {len(self.selected_software)} 个软件待安装")
@@ -3476,6 +3483,10 @@ class InstallationWindow:
         if self.retain_installer and TEMP_DIR in temp_path:
             # 保留安装包选项开启，且文件在Temporary目录中，将其剪切到cache目录
             cache_path = os.path.join(CACHE_DIR, filename)
+            # 检查临时文件是否存在
+            if not os.path.exists(temp_path):
+                self.installer_logger.info(f"临时文件不存在，跳过剪切操作: {temp_path}")
+                return
             self.installer_logger.info(f"保留安装包选项已开启，将文件从 {temp_path} 剪切到 {cache_path}")
             try:
                 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -5077,8 +5088,8 @@ class CacheWindow:
                         self.root.after(0, lambda s=software: self._set_cache_status(s, "未缓存"))
                         return
                 else:
-                    # 无法获取服务器大小，标记为未缓存以便用户手动缓存
-                    self.root.after(0, lambda s=software: self._set_cache_status(s, "未缓存"))
+                    # 无法获取服务器大小，但本地文件存在，标记为已缓存
+                    self.root.after(0, lambda s=software: self._set_cache_status(s, "已缓存"))
                     return
             else:
                 self.root.after(0, lambda s=software: self._set_cache_status(s, "未缓存"))
@@ -5442,10 +5453,26 @@ class CacheWindow:
                             os.remove(download_path)
                         except Exception:
                             pass
+                else:
+                    # 服务器响应异常，但本地文件存在，标记为已缓存
+                    self.root.after(0, lambda s=software: self._set_cache_status(s, "已缓存"))
+                    if not getattr(self, 'aggregate_notifications', True):
+                        try:
+                            notification.notify(title="SEEVVO全家桶一剑下崽弃", message=f"{software} 已存在，已标记为已缓存", app_icon=icon_path if os.path.exists(icon_path) else None)
+                        except Exception:
+                            pass
+                    return
             except Exception:
-                pass
+                # 网络请求异常（离线状态），但本地文件存在，标记为已缓存
+                self.root.after(0, lambda s=software: self._set_cache_status(s, "已缓存"))
+                if not getattr(self, 'aggregate_notifications', True):
+                    try:
+                        notification.notify(title="SEEVVO全家桶一剑下崽弃", message=f"{software} 已存在，已标记为已缓存", app_icon=icon_path if os.path.exists(icon_path) else None)
+                    except Exception:
+                        pass
+                return
 
-        # 开始下载（使用与安装器相同的共享下载实现）
+        # 开始下载
         self.root.after(0, lambda s=software: self._set_cache_status(s, "下载中"))
         try:
             try:
@@ -5461,7 +5488,6 @@ class CacheWindow:
                     progress_update_interval=self.progress_update_interval,
                 )
             except Exception:
-                # 共享下载实现已负责重试与状态回调，这里记录并（可选）通知
                 if not getattr(self, 'aggregate_notifications', True):
                     try:
                         notification.notify(title="SEEVVO全家桶一剑下崽弃", message=f"{software} 缓存失败：{str(e)}", app_icon=icon_path if os.path.exists(icon_path) else None)
@@ -5472,7 +5498,7 @@ class CacheWindow:
 
             # 下载完成：确保进度被标为100%，校验远端大小更新远程大小显示
             self.root.after(0, lambda s=software: self._update_progress(s, 100))
-            # 再次尝试获取远程大小
+            # 获取远程大小
             try:
                 head = requests.head(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10, allow_redirects=True, verify=False)
                 if head.status_code == 200 and "content-length" in head.headers:
