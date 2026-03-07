@@ -140,10 +140,6 @@ SeevvoDownloader/
 - **哔哩哔哩**：[https://space.bilibili.com/1498602348](https://space.bilibili.com/1498602348)
 - **QQ**：2404445436
 
-## 贡献
-
-欢迎提交 Issue 和 Pull Request 来帮助改进这个项目！
-
 ## 更新日志
 ### v2.2.0 更新日期：26/03/02
 - 新增ClassIsland和ClassWidgets，移除希沃易启学
