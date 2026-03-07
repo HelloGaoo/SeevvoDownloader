@@ -2238,12 +2238,18 @@ cd /d "{app_dir}"
 if exist "{app_dir}\\Update.bat" (
     echo 正在运行更新脚本...
     start "" "{app_dir}\\Update.bat"
-    echo 等待更新脚本完成（最多3分钟）...
+    echo 等待更新脚本完成...
     ping 127.0.0.1 -n 181 >nul
 )
 
+echo 正在清理临时文件...
+ping 127.0.0.1 -n 5 >nul
+
 echo 正在启动新版本...
 start "" "{current_exe}"
+
+rem 等待新版本启动后退出
+timeout /t 3 >nul
 exit
 '''
             
