@@ -140,11 +140,9 @@ SeevvoDownloader/
 - **哔哩哔哩**：[https://space.bilibili.com/1498602348](https://space.bilibili.com/1498602348)
 - **QQ**：2404445436
 
-## 贡献
-
-欢迎提交 Issue 和 Pull Request 来帮助改进这个项目！
-
 ## 更新日志
+### v2.4.0 更新日期：26/03/07
+- 修复更新启动的问题
 ### v2.2.0 更新日期：26/03/02
 - 新增ClassIsland和ClassWidgets，移除希沃易启学
 - 更新软件启动时最多十秒检测版本机制
